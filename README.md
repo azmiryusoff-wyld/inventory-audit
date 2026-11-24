@@ -58,6 +58,7 @@ python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 python manage.py migrate
 python manage.py setup_roles
+python manage.py setup_outlets
 python manage.py createsuperuser
 python manage.py load_demo        # optional: a made-up café to click around in
 python manage.py runserver
@@ -95,6 +96,13 @@ python manage.py import_workbook EOC "EOC MASTER - COGS & Inventory Audit.xlsx" 
 It reads `21 SF Master`, `23 Menu Master`, `22 Recipe Master` and `15 Substitutions`, and lists
 any recipe lines whose parent or component it couldn't match. Then add the brand's outlets under
 **Master data › Outlets**.
+
+### Brands and outlets
+
+`outlets.csv` lists every brand and outlet. Run `python manage.py setup_outlets` to create them
+(safe to re-run). To add a brand or outlet later, add a line to the file and run it again, or add
+it under **Master data › Outlets**. The `pos_location` column is the outlet's name in the POS
+report headings; fill in the blanks when you have them.
 
 ### Outlets and POS reports
 

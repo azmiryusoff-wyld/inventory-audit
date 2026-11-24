@@ -234,3 +234,14 @@ class FlowTests(TestCase):
         self.assertEqual(reports["recipes"].skipped, 1)
         fw = MenuItem.objects.get(brand=self.brand, sku="M3")
         self.assertEqual(sorted(line.component_sku for line in fw.recipe.lines.all()), ["COFFEE", "MILK"])
+
+
+class SetupOutletsTests(TestCase):
+    def test_outlets_csv(self):
+        from django.core.management import call_command
+        call_command("setup_outlets", "outlets.csv", stdout=__import__("io").StringIO())
+        self.assertEqual(Brand.objects.count(), 7)
+        self.assertEqual(Outlet.objects.count(), 14)
+        self.assertEqual(Outlet.objects.get(brand__code="EOC", code="KLCC").pos_location, "EOC_KLCC-O2")
+        call_command("setup_outlets", "outlets.csv", stdout=__import__("io").StringIO())  # re-run is safe
+        self.assertEqual(Outlet.objects.count(), 14)
