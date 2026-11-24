@@ -408,6 +408,9 @@ class EngineResult:
         fb_rows = [r for r in self.variance if r.category == FOOD_AND_BEVERAGE]
         top = sorted(fb_rows, key=lambda r: r.variance, reverse=True)[:10]
         total_fb_var = act_fb - theo_fb
+        # Share of all positive (leakage) variance; dividing by the net variance, as the sheet does,
+        # gives meaningless signs when other items are under-used.
+        leakage = sum(r.variance for r in fb_rows if r.variance > 0)
         return {
             "status": self.status,
             "total_sales": sales,
@@ -425,7 +428,7 @@ class EngineResult:
                     "name": r.name,
                     "category": r.category,
                     "variance": r.variance,
-                    "share": r.variance / total_fb_var if total_fb_var else None,
+                    "share": r.variance / leakage if leakage else None,
                 }
                 for r in top
             ],

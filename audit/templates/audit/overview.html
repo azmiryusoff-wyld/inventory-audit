@@ -32,7 +32,7 @@
 
 <h2>Top 10 leakage drivers, Food &amp; Beverage</h2>
 <div class="scroll"><table>
-  <tr><th>Item</th><th class="n">Variance ({{ currency }})</th><th class="n">% of F&amp;B variance</th></tr>
+  <tr><th>Item</th><th class="n">Variance ({{ currency }})</th><th class="n">% of all F&amp;B leakage</th></tr>
   {% for r in dash.top_leakage %}
   <tr><td>{{ r.sku }} {{ r.name }}</td><td class="n">{{ r.variance|money }}</td><td class="n">{{ r.share|pct }}</td></tr>
   {% empty %}<tr><td colspan="3" class="muted">No data yet.</td></tr>{% endfor %}

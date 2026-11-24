@@ -193,3 +193,13 @@ class ItemMasterRowWithRecipeTests(SimpleTestCase):
         self.assertAlmostEqual(result.theoretical(), 18 + 2000 / 0.9 * 0.01 + 0.5)
         self.assertNotIn("LATTE", {r.sku for r in result.consumption})
         self.assertAlmostEqual(result.unit_cost["LATTE"], e.unit_costs(make())["LATTE"])
+
+
+class LeakageShareTests(SimpleTestCase):
+    def test_share_is_of_positive_leakage(self):
+        inp = make(purchases_value={"COFFEE": 48, "MILK": 0, "SUGAR": 1.5}, closing_value={})
+        # coffee +30 over, sugar +1 over, milk -22.2 under
+        dash = e.run(inp).dashboard()
+        shares = {r["sku"]: r["share"] for r in dash["top_leakage"]}
+        self.assertAlmostEqual(shares["COFFEE"], 30 / 31)
+        self.assertTrue(shares["MILK"] < 0)
