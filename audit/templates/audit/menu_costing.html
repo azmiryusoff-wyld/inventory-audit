@@ -1,0 +1,13 @@
+{% extends "audit/base.html" %}{% load audit_tags %}
+{% block content %}
+<h1>{{ brand.code }} menu costing</h1>
+<p class="muted">Cost is the recipe at cost per base unit (as in 23 Menu Master); COGS % uses the price without {{ brand.sales_tax_rate|pct:0 }} tax. "With yield" adds yield loss and substitutions, as the audit uses.</p>
+<div class="scroll"><table>
+  <tr><th>SKU</th><th>Menu item</th><th>Category</th><th class="n">Price</th><th class="n">Cost</th><th class="n">COGS %</th><th class="n">Cost with yield</th></tr>
+  {% for r in rows %}
+  <tr><td>{{ r.menu.sku }}</td><td>{{ r.menu.name }}</td><td>{{ r.menu.category }}</td><td class="n">{{ r.menu.price|money }}</td>
+      <td class="n">{% if r.has_recipe %}{{ r.cost|money }}{% else %}<span class="pill REVIEW">no recipe</span>{% endif %}</td>
+      <td class="n">{{ r.cogs_pct|pct }}</td><td class="n">{{ r.cost_with_yield|money }}</td></tr>
+  {% endfor %}
+</table></div>
+{% endblock %}

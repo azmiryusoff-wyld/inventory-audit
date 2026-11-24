@@ -1,0 +1,49 @@
+{% extends "audit/base.html" %}{% load audit_tags %}
+{% block content %}
+{% include "audit/_audit_head.html" %}
+
+<div class="card">
+  <h2 style="margin-top:0">Monthly files</h2>
+  <table>
+  {% for key, info in uploads.items %}
+    <tr><td><strong>{{ info.0 }}</strong><div class="muted">{{ info.1 }}</div></td>
+        <td class="n">{% for k, v in counts.items %}{% if k == key %}{{ v }} lines{% endif %}{% endfor %}</td>
+        <td>{% if not audit.locked %}<form method="post" enctype="multipart/form-data" action="{% url 'audit_upload' audit.pk key %}" class="inline">{% csrf_token %}
+          <input type="file" name="file" accept=".xlsx,.csv" required><button>Upload</button></form>{% endif %}</td></tr>
+  {% endfor %}
+  </table>
+  <p class="muted">Uploading a file again replaces that file's lines. Production, transfers and wastage are entered under <a href="{% url 'admin:audit_auditperiod_change' audit.pk %}">Master data › this audit</a>.</p>
+</div>
+
+<div class="grid">
+  <div class="card kpi"><div class="label">Total sales (POS)</div><div class="value">{{ currency }} {{ dash.total_sales|money }}</div></div>
+  <div class="card kpi"><div class="label">Theoretical F&amp;B COGS</div><div class="value">{{ currency }} {{ dash.theoretical_fb|money }}</div><div class="muted">{{ dash.theoretical_fb_pct|pct }} of sales</div></div>
+  <div class="card kpi"><div class="label">Actual F&amp;B COGS</div><div class="value">{{ currency }} {{ dash.actual_fb|money }}</div><div class="muted">{{ dash.actual_fb_pct|pct }} of sales</div></div>
+  <div class="card kpi"><div class="label">F&amp;B variance (actual − theoretical)</div><div class="value {% if dash.variance_fb > 0 %}pos{% else %}neg{% endif %}">{{ currency }} {{ dash.variance_fb|money }}</div><div class="muted">{{ dash.variance_fb_pct|pct }} of theoretical · tolerance {{ audit.variance_tolerance|pct }}</div></div>
+</div>
+
+<h2>COGS by category</h2>
+<div class="scroll"><table>
+  <tr><th>Category</th><th class="n">Theoretical</th><th class="n">Actual</th><th class="n">Variance</th><th class="n">Actual % of sales</th></tr>
+  {% for c in dash.by_category %}
+  <tr><td>{{ c.category }}</td><td class="n">{{ c.theoretical|money }}</td><td class="n">{{ c.actual|money }}</td><td class="n">{{ c.variance|money }}</td><td class="n">{{ c.pct_of_sales|pct }}</td></tr>
+  {% endfor %}
+</table></div>
+
+<h2>Top 10 leakage drivers, Food &amp; Beverage</h2>
+<div class="scroll"><table>
+  <tr><th>Item</th><th class="n">Variance ({{ currency }})</th><th class="n">% of F&amp;B variance</th></tr>
+  {% for r in dash.top_leakage %}
+  <tr><td>{{ r.sku }} {{ r.name }}</td><td class="n">{{ r.variance|money }}</td><td class="n">{{ r.share|pct }}</td></tr>
+  {% empty %}<tr><td colspan="3" class="muted">No data yet.</td></tr>{% endfor %}
+</table></div>
+
+<h2>Data checks</h2>
+<div class="scroll"><table>
+  <tr><th>Check</th><th class="n">Count</th><th>Status</th><th>What to do</th></tr>
+  {% for c in checks %}
+  <tr><td>{{ c.label }}</td><td class="n">{{ c.count }}</td><td><span class="pill {% if c.passed %}PASS{% else %}REVIEW{% endif %}">{% if c.passed %}PASS{% else %}REVIEW{% endif %}</span></td>
+      <td>{{ c.action }}{% if c.details %}<details><summary class="muted">Show {{ c.details|length }}</summary>{% for d in c.details %}{{ d }}<br>{% endfor %}</details>{% endif %}</td></tr>
+  {% endfor %}
+</table></div>
+{% endblock %}

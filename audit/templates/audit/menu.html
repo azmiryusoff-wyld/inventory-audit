@@ -1,0 +1,18 @@
+{% extends "audit/base.html" %}{% load audit_tags %}
+{% block content %}
+{% include "audit/_audit_head.html" %}
+<div class="grid">
+{% for s in result.menu_summary %}
+  <div class="card kpi"><div class="label"><span class="pill {{ s.menu_class }}">{{ s.menu_class }}</span> {{ s.items }} items</div><div class="value">{{ s.share|pct }}</div><div class="muted">of sales · {{ currency }} {{ s.sales|money }}</div></div>
+{% endfor %}
+</div>
+<p class="muted">Within each menu category: high margin = above the category's average contribution margin; high popularity = more than 70% of an equal share of units sold.</p>
+<div class="scroll"><table>
+  <tr><th>Menu item</th><th>Category</th><th class="n">Price</th><th class="n">Cost</th><th class="n">Margin</th><th class="n">Units</th><th class="n">Contribution</th><th class="n">Margin %</th><th class="n">Mix %</th><th>Class</th></tr>
+  {% for r in result.menu %}
+  <tr><td>{{ r.name }}</td><td>{{ r.category }}</td><td class="n">{{ r.price|money }}</td><td class="n">{{ r.cost|money }}</td><td class="n">{{ r.margin|money }}</td>
+      <td class="n">{{ r.units|num:0 }}</td><td class="n">{{ r.total_contribution|money }}</td><td class="n">{{ r.margin_pct|pct }}</td><td class="n">{{ r.mix_share|pct }}</td>
+      <td><span class="pill {{ r.menu_class }}">{{ r.menu_class }}</span></td></tr>
+  {% empty %}<tr><td colspan="10" class="muted">No sales uploaded yet.</td></tr>{% endfor %}
+</table></div>
+{% endblock %}

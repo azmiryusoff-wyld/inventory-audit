@@ -1,0 +1,12 @@
+{% extends "audit/base.html" %}{% load audit_tags %}
+{% block content %}
+{% include "audit/_audit_head.html" %}
+<p class="muted">Theoretical usage from recipes: gross = net ÷ yield, valued at cost per base unit. Substitutions already applied.</p>
+<div class="scroll"><table>
+  <tr><th>SKU</th><th>Item</th><th>Category</th><th class="n">Net</th><th class="n">Yield</th><th class="n">Gross</th><th class="n">Cost / base</th><th class="n">Theoretical</th><th>Status</th></tr>
+  {% for r in result.consumption %}{% if r.net %}
+  <tr><td>{{ r.sku }}</td><td>{{ r.name }}</td><td>{{ r.category }}</td><td class="n">{{ r.net|num:3 }}</td><td class="n">{{ r.yield_pct|pct }}</td><td class="n">{{ r.gross|num:3 }}</td>
+      <td class="n">{{ r.cost_per_base|num:4 }}</td><td class="n">{{ r.theoretical_cost|money }}</td><td><span class="pill {% if r.status == 'OK' %}OK{% else %}REVIEW{% endif %}">{{ r.status }}</span></td></tr>
+  {% endif %}{% endfor %}
+</table></div>
+{% endblock %}

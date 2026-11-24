@@ -1,0 +1,13 @@
+{% extends "audit/base.html" %}{% load audit_tags %}
+{% block content %}
+{% include "audit/_audit_head.html" %}
+<p class="muted">Actual = opening + purchases − closing. Positive variance means more was used than the recipes predict.</p>
+<div class="scroll"><table>
+  <tr><th>SKU</th><th>Item</th><th>Category</th><th>Recipe</th><th class="n">Theoretical</th><th class="n">Opening</th><th class="n">Purchases</th><th class="n">Closing</th><th class="n">Actual</th><th class="n">Variance</th><th class="n">Var %</th></tr>
+  {% for r in result.variance %}
+  <tr><td>{{ r.sku }}</td><td>{{ r.name }}</td><td>{{ r.category }}</td><td>{{ r.has_recipe|yesno:"Yes,No" }}</td>
+    <td class="n">{{ r.theoretical_cost|money }}</td><td class="n">{{ r.opening|money }}</td><td class="n">{{ r.purchases|money }}</td><td class="n">{{ r.closing|money }}</td>
+    <td class="n">{{ r.actual_cost|money }}</td><td class="n {% if r.variance > 0 %}pos{% else %}neg{% endif %}">{{ r.variance|money }}</td><td class="n">{{ r.variance_pct|pct }}</td></tr>
+  {% empty %}<tr><td colspan="11" class="muted">No data yet.</td></tr>{% endfor %}
+</table></div>
+{% endblock %}
