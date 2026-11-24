@@ -390,8 +390,9 @@ def load_purchases(audit, file, source="supplier", replace=True) -> ImportReport
         item = items.get(row["sku"])
         PurchaseLine.objects.create(audit=audit, source=source, item=item, **row)
         report.created += 1
-        if item is None:
-            report.warnings.append(f"Unknown SKU {row['sku']} ({row['description']})")
+        msg = f"Unknown SKU {row['sku']} ({row['description']})"
+        if item is None and msg not in report.warnings:
+            report.warnings.append(msg)
     return report
 
 
@@ -407,8 +408,9 @@ def load_stock_count(audit, file, kind, replace=True) -> ImportReport:
         item = items.get(row["sku"])
         StockCount.objects.create(audit=audit, kind=kind, item=item, **row)
         report.created += 1
-        if item is None:
-            report.warnings.append(f"Unknown SKU {row['sku']} ({row['description']})")
+        msg = f"Unknown SKU {row['sku']} ({row['description']})"
+        if item is None and msg not in report.warnings:
+            report.warnings.append(msg)
     return report
 
 

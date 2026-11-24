@@ -106,6 +106,11 @@ The POS upload accepts the single-outlet *Item Sales Report Summary* and the mul
 column. POS names match menu names ignoring case and spacing, and "Latte" also matches a menu item
 called "Latte - Regular Price". Anything else can be linked with a POS alias on the menu item.
 
+Use the report that matches how the brand's menu is set up. EOC's menu is per variant
+("Americano - Cold", "Americano - Hot"), so it needs each outlet's *Item Sales Report Summary*,
+which has the Full Name; the multi-outlet report only says "Americano". Chonky's menu has no
+variants, so its multi-outlet report works.
+
 Adding a brand or outlet later needs no code change: add it under Master data and import the
 brand's recipes once.
 
