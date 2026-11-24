@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 
+from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
@@ -386,7 +387,11 @@ def load_purchases(audit, file, source="supplier", replace=True) -> ImportReport
     if replace:
         audit.purchases.filter(source=source).delete()
     items = {i.sku: i for i in Item.objects.all()}
+    skip = [norm(x) for x in settings.PURCHASE_SKIP_DESCRIPTIONS]
     for row in read_xero_invoices(file):
+        if any(x in norm(row["description"]) for x in skip):
+            report.skipped += 1  # e.g. delivery handling charges: not stock
+            continue
         item = items.get(row["sku"])
         PurchaseLine.objects.create(audit=audit, source=source, item=item, **row)
         report.created += 1

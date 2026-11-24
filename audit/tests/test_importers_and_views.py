@@ -27,6 +27,7 @@ XERO_CSV = """ContactName,InvoiceNumber,Reference,InvoiceDate,Total,InventoryIte
 SUPPLIER A,IV-1,R1,1/9/2026,500,COFFEE,COFFEE BEAN 1KG,2,100,200,70-004,X
 SUPPLIER A,IV-1,R1,1/9/2026,500,MILK,FRESH MILK 1L,10,4,40,70-004,X
 SUPPLIER A,IV-1,R1,1/9/2026,500,ZZZ999,UNKNOWN THING,1,5,5,70-004,X
+SUPPLIER A,IV-1,R1,1/9/2026,500,PPP0249,HANDLING CHARGE (PASTRY BOYS),1,10,10,70-004,X
 """
 
 COUNT_CSV = """SKU,Item Name,Category,Qty 1,Uom 1,Price Per Uom 1,Qty 2,Uom 2,Price Per Uom 2,Qty 3,Uom 3,Price Per Uom 3,Total RM Value,,KLCC,31/10/2026
@@ -138,7 +139,8 @@ class FlowTests(TestCase):
 
         issues = {c.key: c.count for c in services.input_issues(self.audit)}
         self.assertEqual(issues["pos_unmatched"], 1)
-        self.assertEqual(issues["purchase_unknown"], 1)
+        self.assertEqual(issues["purchase_unknown"], 1)  # ZZZ999; the handling charge is skipped
+        self.assertFalse(self.audit.purchases.filter(sku="PPP0249").exists())
 
         # Uploading again replaces, not doubles.
         self.post_file("pos", "pos.csv", POS_CSV)

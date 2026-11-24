@@ -36,6 +36,7 @@ Differences from the sheet, on purpose:
 * POS names are matched case- and spacing-insensitively, and a menu item can have extra
   POS names ("aliases") for renamed items.
 * Inter-company purchases have their own upload and count towards actual cost.
+* Invoice lines described as a handling charge are skipped (set `PURCHASE_SKIP_DESCRIPTIONS` to change the list).
 * Some central item master rows are menu or semi-finished items with a typed price. When such an
   item also has a recipe, the recipe is used and the typed price is ignored, so it is not counted twice.
 

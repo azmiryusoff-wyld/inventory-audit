@@ -101,7 +101,8 @@ def upload(request, pk, kind):
         except ValueError as exc:
             messages.error(request, f"{UPLOADS[kind][0]}: {exc}")
         else:
-            messages.success(request, f"{UPLOADS[kind][0]}: {report.created} lines loaded.")
+            skipped = f", {report.skipped} handling-charge lines skipped" if report.skipped else ""
+            messages.success(request, f"{UPLOADS[kind][0]}: {report.created} lines loaded{skipped}.")
             if report.warnings:
                 messages.warning(
                     request, f"{len(report.warnings)} lines didn't match: " + "; ".join(report.warnings[:8])

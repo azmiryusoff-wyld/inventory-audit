@@ -87,3 +87,8 @@ FILE_UPLOAD_MAX_MEMORY_SIZE = 20 * 1024 * 1024
 ITEM_MASTER_SHEET_ID = os.environ.get("ITEM_MASTER_SHEET_ID", "")
 
 GOOGLE_SERVICE_ACCOUNT_FILE = os.environ.get("GOOGLE_SERVICE_ACCOUNT_FILE", "")
+
+# Purchase invoice lines whose description contains any of these are not stock and are skipped.
+PURCHASE_SKIP_DESCRIPTIONS = [
+    x.strip() for x in os.environ.get("PURCHASE_SKIP_DESCRIPTIONS", "handling charge").split(",") if x.strip()
+]
