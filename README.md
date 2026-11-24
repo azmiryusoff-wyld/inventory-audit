@@ -32,7 +32,7 @@ Differences from the sheet, on purpose:
 * No 5-level limit on recipe nesting. Loops (a recipe that contains itself) are caught and flagged.
 * No fixed row limits.
 * Extra checks the sheet couldn't show: POS names not on the menu, purchase and stock count
-  SKUs not in the item master, sold items with no price.
+  SKUs not in the item master. Menu items with no price count as free (RM0) and are not flagged.
 * POS names are matched case- and spacing-insensitively, and a menu item can have extra
   POS names ("aliases") for renamed items.
 * Inter-company purchases have their own upload and count towards actual cost.

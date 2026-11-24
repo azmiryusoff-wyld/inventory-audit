@@ -96,20 +96,18 @@ def run_audit(audit: AuditPeriod) -> engine.EngineResult:
 
 
 def input_issues(audit: AuditPeriod) -> list[engine.Check]:
-    """Checks on the uploaded files that the sheet never made visible."""
+    """Checks on the uploaded files that the sheet never made visible.
+
+    Menu items with no price are not flagged: they are treated as free
+    (staff and calibration coffee) at RM0.
+    """
     unmatched_sales = sorted({s.pos_name for s in audit.sales.filter(menu_item__isnull=True)})
     unknown_purchases = sorted({p.sku for p in audit.purchases.filter(item__isnull=True)})
     unknown_counts = sorted({c.sku for c in audit.stock_counts.filter(item__isnull=True)})
-    no_price = sorted(
-        {s.menu_item.sku for s in audit.sales.select_related("menu_item")
-         if s.menu_item and not s.menu_item.price}
-    )
     return [
         engine.Check("pos_unmatched", "POS items not found in the menu", len(unmatched_sales),
                      "Add the item to the menu, or add its POS name as an alias of an existing item.",
                      unmatched_sales),
-        engine.Check("price", "Sold menu items with no price", len(no_price),
-                     "Enter a selling price in the menu.", no_price),
         engine.Check("purchase_unknown", "Purchase SKUs not in the item master", len(unknown_purchases),
                      "Add the SKU to the central item master and sync, or fix the invoice code.",
                      unknown_purchases),
