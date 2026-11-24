@@ -46,6 +46,15 @@ def _menu(brand: Brand) -> dict[str, engine.MenuItem]:
     }
 
 
+def _substitutions(brand: Brand) -> list[engine.Substitution]:
+    """Brand mappings first; group-wide ones only for items the brand hasn't mapped itself."""
+    qs = Substitution.objects.filter(active=True).select_related("original", "substitute")
+    own = list(qs.filter(brand=brand))
+    mapped = {s.original_id for s in own}
+    group = [s for s in qs.filter(brand__isnull=True) if s.original_id not in mapped]
+    return [engine.Substitution(s.original.sku, s.substitute.sku, float(s.factor)) for s in own + group]
+
+
 def brand_input(brand: Brand) -> engine.EngineInput:
     """Master data only, no period data. Used for recipe and menu costing."""
     return engine.EngineInput(
@@ -53,10 +62,7 @@ def brand_input(brand: Brand) -> engine.EngineInput:
         recipes=_recipes(brand),
         menu=_menu(brand),
         semi_finished=set(SemiFinished.objects.filter(brand=brand).values_list("sku", flat=True)),
-        substitutions=[
-            engine.Substitution(s.original.sku, s.substitute.sku, float(s.factor))
-            for s in Substitution.objects.filter(brand=brand, active=True).select_related("original", "substitute")
-        ],
+        substitutions=_substitutions(brand),
     )
 
 

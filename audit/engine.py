@@ -452,8 +452,11 @@ def _consumption(inp: EngineInput, net: dict[str, float]) -> list[ConsumptionRow
     rows = []
     for sku in sorted(set(net) | set(inp.items)):
         item = inp.items.get(sku)
-        if item is None:
-            continue  # menu and SF SKUs carry no cost of their own
+        if item is None or sku in inp.recipes:
+            # Menu and SF SKUs carry no cost of their own. Some central item master rows
+            # are menu or SF items with a typed price; when a recipe exists, the recipe's
+            # components are what is consumed, so costing the row too would double count.
+            continue
         n = net.get(sku, 0.0)
         y = item.yield_pct
         gross = n / y if y and y > 0 else n

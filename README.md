@@ -36,6 +36,8 @@ Differences from the sheet, on purpose:
 * POS names are matched case- and spacing-insensitively, and a menu item can have extra
   POS names ("aliases") for renamed items.
 * Inter-company purchases have their own upload and count towards actual cost.
+* Some central item master rows are menu or semi-finished items with a typed price. When such an
+  item also has a recipe, the recipe is used and the typed price is ignored, so it is not counted twice.
 
 ## Who can do what
 
@@ -77,7 +79,9 @@ The central item master stays the source of truth; the app reads from it.
   `GOOGLE_SERVICE_ACCOUNT_FILE=/path/key.json` and `ITEM_MASTER_SHEET_ID=<the workbook id>` and run
   `python manage.py sync_item_master`. Schedule it (e.g. nightly cron) to keep prices current.
 
-Items no longer in the workbook are marked inactive, never deleted.
+Items no longer in the workbook are marked inactive, never deleted. The workbook's
+`15 Substitutions` tab is loaded too and applies to every brand; a substitution added to one
+brand under Master data overrides it for that brand. Duplicate SKUs keep the first row and are listed.
 
 ### Each brand's menu, recipes and semi-finished items (one-off)
 
@@ -90,6 +94,20 @@ python manage.py import_workbook EOC "EOC MASTER - COGS & Inventory Audit.xlsx" 
 It reads `21 SF Master`, `23 Menu Master`, `22 Recipe Master` and `15 Substitutions`, and lists
 any recipe lines whose parent or component it couldn't match. Then add the brand's outlets under
 **Master data › Outlets**.
+
+### Outlets and POS reports
+
+Brands share the item master; outlets of a brand share its menu and recipes. Each outlet has its
+own audits, so its own POS, purchase and stock count uploads.
+
+The POS upload accepts the single-outlet *Item Sales Report Summary* and the multi-outlet
+*Item Sales (Count_Gross)* report. For the multi-outlet one, set each outlet's **POS location**
+(e.g. `EOC_KLCC-O2`, exactly as in the report's column headings) and the app picks that outlet's
+column. POS names match menu names ignoring case and spacing, and "Latte" also matches a menu item
+called "Latte - Regular Price". Anything else can be linked with a POS alias on the menu item.
+
+Adding a brand or outlet later needs no code change: add it under Master data and import the
+brand's recipes once.
 
 ## Deploying
 

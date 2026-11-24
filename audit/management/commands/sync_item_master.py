@@ -1,22 +1,30 @@
 from django.core.management.base import BaseCommand
 
-from audit.importers import load_item_master, read_rows
-from audit.sync import fetch_item_master_rows
+from audit.importers import load_group_substitutions, load_item_master, read_rows
+from audit.sync import fetch_tab
 
 
 class Command(BaseCommand):
-    help = "Sync items from the central item master (Google Sheets, or a downloaded .xlsx/.csv)."
+    help = (
+        "Sync the central item master workbook: '20 Item Master' and the group-wide "
+        "'15 Substitutions'. From Google Sheets, or from a downloaded .xlsx."
+    )
 
     def add_arguments(self, parser):
-        parser.add_argument("--file", help="Downloaded item master (.xlsx or .csv) instead of Google Sheets")
-        parser.add_argument("--tab", default="20 Item Master", help="Tab name inside an .xlsx")
+        parser.add_argument("--file", help="Downloaded central workbook (.xlsx) instead of Google Sheets")
 
-    def handle(self, *args, file=None, tab=None, **opts):
+    def handle(self, *args, file=None, **opts):
         if file:
-            rows = read_rows(file, sheet=tab if file.lower().endswith(".xlsx") else None)
+            items = read_rows(file, sheet="20 Item Master")
+            try:
+                subs = read_rows(file, sheet="15 Substitutions")
+            except KeyError:
+                subs = []
         else:
-            rows = fetch_item_master_rows()
-        report = load_item_master(rows)
-        self.stdout.write(self.style.SUCCESS(f"Item master: {report}"))
-        for w in report.warnings:
-            self.stdout.write(f"  ! {w}")
+            items = fetch_tab("20 Item Master")
+            subs = fetch_tab("15 Substitutions", missing_ok=True)
+        for label, report in [("Item master", load_item_master(items)),
+                              ("Group substitutions", load_group_substitutions(subs))]:
+            self.stdout.write(self.style.SUCCESS(f"{label}: {report}"))
+            for w in report.warnings:
+                self.stdout.write(f"  ! {w}")

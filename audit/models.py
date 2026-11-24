@@ -43,6 +43,10 @@ class Outlet(models.Model):
     brand = models.ForeignKey(Brand, on_delete=models.PROTECT, related_name="outlets")
     code = models.CharField(max_length=40)
     name = models.CharField(max_length=200)
+    pos_location = models.CharField(
+        max_length=100, blank=True,
+        help_text="Location name in the POS report, e.g. EOC_KLCC-O2. Needed when one report covers several outlets.",
+    )
     active = models.BooleanField(default=True)
 
     class Meta:
@@ -197,9 +201,17 @@ class RecipeLine(models.Model):
 
 
 class Substitution(models.Model):
-    """15 Substitutions: a one-way swap of an item in every recipe of a brand."""
+    """15 Substitutions: a one-way swap of an item in every recipe.
 
-    brand = models.ForeignKey(Brand, on_delete=models.CASCADE, related_name="substitutions")
+    With a brand it applies to that brand only; without one (as in the central
+    item master workbook) it applies to every brand. A brand's own mapping for
+    an item wins over the group-wide one.
+    """
+
+    brand = models.ForeignKey(
+        Brand, null=True, blank=True, on_delete=models.CASCADE, related_name="substitutions",
+        help_text="Leave empty to apply to every brand",
+    )
     original = models.ForeignKey(Item, on_delete=models.PROTECT, related_name="+")
     substitute = models.ForeignKey(Item, on_delete=models.PROTECT, related_name="+")
     factor = models.DecimalField(

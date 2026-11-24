@@ -180,3 +180,16 @@ class MatchesEocSheetTests(SimpleTestCase):
         inp = e.EngineInput(items=items, recipes=recipes)
         self.assertAlmostEqual(e.recipe_cost_no_yield(inp, "EOC-001"), 2.13, delta=0.01)  # sheet: 2.13
         self.assertAlmostEqual(e.recipe_cost_no_yield(inp, "EOC-006"), 3.77, delta=0.01)  # sheet: 3.77
+
+
+class ItemMasterRowWithRecipeTests(SimpleTestCase):
+    """The central item master also lists menu and SF items with a typed price (category 'Menu')."""
+
+    def test_recipe_wins_and_is_not_double_counted(self):
+        items = dict(ITEMS)
+        items["LATTE"] = e.Item("LATTE", "Latte - Hot", "Menu", 99.0, 1.0)
+        items["SYRUP"] = e.Item("SYRUP", "Syrup", "Food & Beverage", 5.0, 1.0)
+        result = e.run(make(items=items))
+        self.assertAlmostEqual(result.theoretical(), 18 + 2000 / 0.9 * 0.01 + 0.5)
+        self.assertNotIn("LATTE", {r.sku for r in result.consumption})
+        self.assertAlmostEqual(result.unit_cost["LATTE"], e.unit_costs(make())["LATTE"])

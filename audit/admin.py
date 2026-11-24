@@ -11,7 +11,7 @@ class BrandAdmin(admin.ModelAdmin):
 
 @admin.register(models.Outlet)
 class OutletAdmin(admin.ModelAdmin):
-    list_display = ["brand", "code", "name", "active"]
+    list_display = ["brand", "code", "name", "pos_location", "active"]
     list_filter = ["brand", "active"]
 
 
@@ -77,9 +77,13 @@ class RecipeAdmin(admin.ModelAdmin):
 
 @admin.register(models.Substitution)
 class SubstitutionAdmin(admin.ModelAdmin):
-    list_display = ["original", "substitute", "factor", "brand", "active"]
+    list_display = ["original", "substitute", "factor", "applies_to", "active"]
     list_filter = ["brand", "active"]
     autocomplete_fields = ["original", "substitute"]
+
+    @admin.display(description="Applies to")
+    def applies_to(self, obj):
+        return obj.brand or "All brands"
 
 
 class SaleInline(admin.TabularInline):

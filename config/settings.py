@@ -85,5 +85,5 @@ FILE_UPLOAD_MAX_MEMORY_SIZE = 20 * 1024 * 1024
 
 # Central item master workbook (Google Sheets). See README "Item master sync".
 ITEM_MASTER_SHEET_ID = os.environ.get("ITEM_MASTER_SHEET_ID", "")
-ITEM_MASTER_TAB = os.environ.get("ITEM_MASTER_TAB", "20 Item Master")
+
 GOOGLE_SERVICE_ACCOUNT_FILE = os.environ.get("GOOGLE_SERVICE_ACCOUNT_FILE", "")

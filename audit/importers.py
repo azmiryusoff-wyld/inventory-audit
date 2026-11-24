@@ -128,31 +128,67 @@ def cell(row: list, cols: dict[str, int], name: str):
 # --------------------------------------------------------------------------
 
 
-def read_pos_sales(file) -> list[dict]:
-    """POS Item Sales Report Summary -> [{'pos_name', 'qty'}], summed by name."""
+class PosLocationError(ValueError):
+    pass
+
+
+def read_pos_sales(file, location: str = "") -> list[dict]:
+    """POS item sales export -> [{'pos_name', 'qty'}], summed by name.
+
+    Handles the three shapes seen so far:
+      * Item Sales Report Summary: Category / Group, Item, Quantity, Full Name (one outlet)
+      * Item Sales (Count_Gross): Item, '<LOCATION> (Count)', '<LOCATION> (Price)', ... (several outlets;
+        ``location`` picks the outlet's Count column)
+      * a bare two-column paste: name, quantity
+    """
     rows = read_rows(file)
     totals: dict[str, tuple[str, Decimal]] = {}
-    try:
-        start, cols = find_header(rows, ["Quantity"])
-        has_full = norm("Full Name") in cols
-        body = rows[start + 1:]
-        for r in body:
-            if has_full:
-                name = clean(cell(r, cols, "Full Name"))
-            else:
-                group, item = clean(cell(r, cols, "Category / Group")), clean(cell(r, cols, "Item"))
-                name = f"{group} - {item}" if group and item else group or item
-            if name:
-                key = norm(name)
-                prev = totals.get(key, (name, Decimal("0")))
-                totals[key] = (prev[0], prev[1] + to_decimal(cell(r, cols, "Quantity")))
-    except ValueError:
-        # No header: two columns, name then quantity (the sheet's paste area).
+
+    def add(name, q):
+        name = clean(name)
+        if not name:
+            return
+        key = norm(name)
+        prev = totals.get(key, (name, Decimal("0")))
+        totals[key] = (prev[0], prev[1] + to_decimal(q))
+
+    header = None
+    for i, row in enumerate(rows[:30]):
+        cells = [norm(c) for c in row]
+        if "quantity" in cells or any(c.endswith("(count)") for c in cells):
+            header = i, {c: j for j, c in enumerate(cells) if c}
+            break
+    if header is None:
         for r in rows:
-            if len(r) >= 2 and clean(r[0]):
-                key = norm(r[0])
-                prev = totals.get(key, (clean(r[0]), Decimal("0")))
-                totals[key] = (prev[0], prev[1] + to_decimal(r[1]))
+            if len(r) >= 2:
+                add(r[0], r[1])
+    else:
+        start, cols = header
+        count_cols = {c[: -len("(count)")].strip(): j for c, j in cols.items() if c.endswith("(count)")}
+        if count_cols:
+            if len(count_cols) == 1:
+                qty_col = next(iter(count_cols.values()))
+            elif location and norm(location) in count_cols:
+                qty_col = count_cols[norm(location)]
+            else:
+                names = ", ".join(sorted(k.upper() for k in count_cols))
+                raise PosLocationError(
+                    f"This report covers several outlets ({names}). Set the outlet's POS location "
+                    "under Master data > Outlets to one of these names."
+                )
+            item_col = cols.get("item", 0)
+            for r in rows[start + 1:]:
+                if len(r) > max(item_col, qty_col):
+                    add(r[item_col], r[qty_col])
+        else:
+            has_full = norm("Full Name") in cols
+            for r in rows[start + 1:]:
+                if has_full:
+                    name = cell(r, cols, "Full Name")
+                else:
+                    group, item = clean(cell(r, cols, "Category / Group")), clean(cell(r, cols, "Item"))
+                    name = f"{group} - {item}" if group and item else group or item
+                add(name, cell(r, cols, "Quantity"))
     return [{"pos_name": n, "qty": q} for n, q in totals.values() if q]
 
 
@@ -259,6 +295,34 @@ class ImportReport:
 
 
 @transaction.atomic
+def load_group_substitutions(rows: list[list]) -> ImportReport:
+    """'15 Substitutions' in the central workbook: applies to every brand. Replaces the group-wide set."""
+    from .models import Item, Substitution
+
+    report = ImportReport()
+    if not rows:
+        return report
+    _, cols = find_header(rows, ["Original SKU", "Substitute SKU"])
+    factor_col = next((j for k, j in cols.items() if k.startswith("conversion factor")), None)
+    items = {i.sku: i for i in Item.objects.all()}
+    Substitution.objects.filter(brand__isnull=True).delete()
+    for r in rows[1:]:
+        o, s = clean(cell(r, cols, "Original SKU")), clean(cell(r, cols, "Substitute SKU"))
+        if not o:
+            continue
+        if o not in items or s not in items:
+            report.skipped += 1
+            report.warnings.append(f"Substitution {o} -> {s}: SKU not in item master")
+            continue
+        factor = to_decimal(r[factor_col] if factor_col is not None and factor_col < len(r) else 1,
+                            default=Decimal("1"))
+        Substitution.objects.create(brand=None, original=items[o], substitute=items[s], factor=factor,
+                                    note=clean(cell(r, cols, "Note")))
+        report.created += 1
+    return report
+
+
+@transaction.atomic
 def load_item_master(rows: list[list]) -> ImportReport:
     """Upsert items from the central item master. Items missing from the file are deactivated."""
     from .models import Item
@@ -284,9 +348,16 @@ def load_item_master(rows: list[list]) -> ImportReport:
 def _menu_lookup(brand):
     from .models import MenuItem, PosAlias
 
-    lookup = {norm(m.name): m for m in MenuItem.objects.filter(brand=brand)}
+    items = list(MenuItem.objects.filter(brand=brand))
+    lookup = {norm(m.name): m for m in items}
     for a in PosAlias.objects.filter(menu_item__brand=brand).select_related("menu_item"):
         lookup.setdefault(norm(a.pos_name), a.menu_item)
+    # Reports that list items without their variant: "8oz Mug" for "8oz Mug - Regular Price".
+    suffix = " - regular price"
+    for m in items:
+        n = norm(m.name)
+        if n.endswith(suffix):
+            lookup.setdefault(n[: -len(suffix)], m)
     return lookup
 
 
@@ -298,7 +369,7 @@ def load_pos_sales(audit, file, replace=True) -> ImportReport:
     if replace:
         audit.sales.all().delete()
     menu = _menu_lookup(audit.brand)
-    for row in read_pos_sales(file):
+    for row in read_pos_sales(file, location=audit.outlet.pos_location):
         m = menu.get(norm(row["pos_name"]))
         SaleLine.objects.create(audit=audit, pos_name=row["pos_name"], menu_item=m, qty=row["qty"])
         report.created += 1
@@ -377,10 +448,18 @@ def load_workbook_masters(brand, file) -> dict[str, ImportReport]:
     rows = tab("23 Menu Master")
     if rows:
         _, cols = find_header(rows, ["Menu SKU", "Menu Name"])
+        seen_menu = set()
         for r in rows[1:]:
             sku = clean(cell(r, cols, "Menu SKU"))
             if not sku:
                 continue
+            if sku in seen_menu:
+                reports["menu"].skipped += 1
+                reports["menu"].warnings.append(
+                    f"Menu SKU {sku} is used twice; kept the first, skipped '{clean(cell(r, cols, 'Menu Name'))}'"
+                )
+                continue
+            seen_menu.add(sku)
             price = to_decimal(cell(r, cols, "Unit Price"), default=None)
             _, created = MenuItem.objects.update_or_create(
                 brand=brand, sku=sku,

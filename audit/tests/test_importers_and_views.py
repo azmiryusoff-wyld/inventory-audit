@@ -55,6 +55,19 @@ class ParsingTests(SimpleTestCase):
         rows = importers.read_pos_sales(upload("pos.csv", "Latte - Hot,5\nEspresso - Hot,3\n"))
         self.assertEqual(len(rows), 2)
 
+    def test_pos_sales_multi_outlet_report(self):
+        text = (
+            "Business Name,WYLD Group\nLocation Name,\"CHNKY_GARDENS-O43, CHNKY_TRX-O36\"\n \n"
+            "Item,CHNKY_GARDENS-O43 (Count),CHNKY_GARDENS-O43 (Price),CHNKY_TRX-O36 (Count),CHNKY_TRX-O36 (Price)\n"
+            " \n4pcs Cookies In A Box,334,14028,1146,48132\n \nDark Chocolate Chonk,10,100,0,0\n"
+        )
+        rows = importers.read_pos_sales(upload("p.csv", text), location="CHNKY_TRX-O36")
+        self.assertEqual(rows, [{"pos_name": "4pcs Cookies In A Box", "qty": Decimal("1146")}])
+        rows = importers.read_pos_sales(upload("p.csv", text), location="chnky_gardens-o43")
+        self.assertEqual(len(rows), 2)
+        with self.assertRaises(importers.PosLocationError):
+            importers.read_pos_sales(upload("p.csv", text))
+
     def test_xero(self):
         rows = importers.read_xero_invoices(upload("x.csv", XERO_CSV))
         self.assertEqual(rows[0]["sku"], "COFFEE")
@@ -143,6 +156,40 @@ class FlowTests(TestCase):
         self.assertEqual(self.client.get(reverse("trends")).status_code, 200)
         self.assertEqual(self.client.get(reverse("menu_costing", args=["EOC"])).status_code, 200)
         self.assertEqual(self.client.get(reverse("home")).status_code, 200)
+
+    def test_multi_outlet_report_and_regular_price_names(self):
+        MenuItem.objects.create(brand=self.brand, sku="M9", name="8oz Mug - Regular Price", price=58)
+        self.outlet.pos_location = "EOC_KLCC-O2"
+        self.outlet.save()
+        text = ("Item,EOC_GARDENS-O1 (Count),EOC_GARDENS-O1 (Price),EOC_KLCC-O2 (Count),EOC_KLCC-O2 (Price)\n"
+                "8oz Mug,1,58,2,116\nLatte - Hot,5,75,7,105\n")
+        self.post_file("pos", "pos.csv", text)
+        got = {s.menu_item.sku: s.qty for s in self.audit.sales.all()}
+        self.assertEqual(got, {"M9": 2, "M1": 7})
+
+    def test_multi_outlet_report_without_location_is_rejected(self):
+        text = "Item,A (Count),A (Price),B (Count),B (Price)\nLatte - Hot,5,75,7,105\n"
+        resp = self.post_file("pos", "pos.csv", text)
+        self.assertEqual(self.audit.sales.count(), 0)
+        self.assertContains(self.client.get(reverse("audit_detail", args=[self.audit.pk])), "POS location")
+
+    def test_group_substitutions(self):
+        from audit.models import Substitution
+        Item.objects.create(sku="OAT", name="OAT MILK", pack_size=1000, purchase_price=20, base_uom="ML")
+        rows = [["Original SKU", "Original Name", "Substitute SKU", "Substitute Name",
+                 "Conversion Factor (sub units per 1 original)", "Note", "Engine Status"],
+                ["MILK", "", "OAT", "", 1.0, "", "ACTIVE"], ["NOPE", "", "OAT", "", 1, "", ""]]
+        report = importers.load_group_substitutions(rows)
+        self.assertEqual((report.created, report.skipped), (1, 1))
+        net = services.run_audit(self.audit).net
+        self.assertEqual(net, {})  # no sales yet
+        inp = services.brand_input(self.brand)
+        self.assertEqual([(s.original_sku, s.substitute_sku) for s in inp.substitutions], [("MILK", "OAT")])
+        # A brand's own mapping for the same item wins.
+        Substitution.objects.create(brand=self.brand, original=Item.objects.get(sku="MILK"),
+                                    substitute=Item.objects.get(sku="SUGAR"), factor=1)
+        inp = services.brand_input(self.brand)
+        self.assertEqual([(s.original_sku, s.substitute_sku) for s in inp.substitutions], [("MILK", "SUGAR")])
 
     def test_menu_costing_matches_sheet_definition(self):
         rows = {r["menu"].sku: r for r in services.menu_costing(self.brand)}
