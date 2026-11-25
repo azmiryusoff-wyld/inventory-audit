@@ -346,6 +346,11 @@ def opening_vs_previous_closing(audit: AuditPeriod) -> list[str]:
     ]
 
 
+def is_first_month(audit: AuditPeriod) -> bool:
+    """No earlier audit for this outlet in the app, so opening stock can't come from one."""
+    return not AuditPeriod.objects.filter(outlet=audit.outlet, period__lt=audit.period).exists()
+
+
 def previous_closing_count(audit: AuditPeriod) -> int:
     prev = previous_audit(audit)
     return prev.stock_counts.filter(kind="closing").count() if prev else 0

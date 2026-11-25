@@ -13,6 +13,9 @@
   <table>
   {% for key, info in uploads.items %}
     <tr><td><strong>{{ info.0 }}</strong><div class="muted">{{ info.1 }}</div>
+          {% if key == "opening" and first_month and not audit.locked %}{% for k, v in counts.items %}{% if k == "opening" and not v %}
+          <div class="msg warning" style="margin:6px 0">First month for this outlet in the app: upload last month's closing count from the old workbook as opening stock. From next month it is filled in automatically.</div>
+          {% endif %}{% endfor %}{% endif %}
           <div><a href="{% url 'upload_template' key %}">Download empty template (.csv)</a>
             <span class="muted"> · Example line: {{ info.3 }}</span></div></td>
         {% for k, v in counts.items %}{% if k == key %}

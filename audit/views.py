@@ -114,8 +114,14 @@ def home(request):
         elif form.is_valid():
             audit = form.save()
             copied = services.copy_previous_closing(audit)
-            note = (f" Opening stock was filled in from {services.previous_period(audit.period)}'s closing "
-                    f"count ({copied} lines)." if copied else "")
+            if copied:
+                note = (f" Opening stock was filled in from {services.previous_period(audit.period)}'s closing "
+                        f"count ({copied} lines).")
+            elif services.is_first_month(audit):
+                note = (" This is the first month for this outlet in the app: upload last month's closing count "
+                        "from the old workbook as opening stock.")
+            else:
+                note = ""
             messages.success(request, f"Started {audit}. Upload this month's files below.{note}")
             return redirect("audit_detail", audit.pk)
     audits = AuditPeriod.objects.select_related("outlet__brand")
@@ -144,6 +150,7 @@ def _context(audit, tab, user):
         "can_copy_opening": (not audit.locked and user.has_perm(UPLOAD_PERMISSIONS["opening"])
                              and services.previous_closing_count(audit) > 0),
         "previous_period": services.previous_period(audit.period),
+        "first_month": services.is_first_month(audit),
         "tolerance": float(audit.variance_tolerance),
     }
     ctx["variance_outside"] = services.variance_outside(ctx["dash"], ctx["tolerance"])

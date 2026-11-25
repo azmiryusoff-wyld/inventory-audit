@@ -60,6 +60,19 @@ class OpeningCarryOverTests(Phase2Base):
         self.assertEqual(nov.stock_counts.get(kind="opening", sku="COFFEE").value, 50)
         self.assertEqual(next(c for c in services.input_issues(nov) if c.key == "opening_mismatch").count, 0)
 
+    def test_first_month_says_where_opening_stock_comes_from(self):
+        resp = self.client.post(reverse("home"), {"outlet": self.outlet.pk, "period": "2026-09", "tolerance_pct": "2"},
+                                follow=True)
+        text = "first month for this outlet in the app: upload last month's closing count from the old workbook"
+        self.assertIn(text, messages(resp))
+        sep = AuditPeriod.objects.get(period="2026-09")
+        self.assertContains(self.client.get(reverse("audit_detail", args=[sep.pk])), "First month for this outlet")
+        # October has September before it, so no first-month note there.
+        self.assertNotContains(self.client.get(reverse("audit_detail", args=[self.audit.pk])), "First month for this outlet")
+        # Once opening stock is uploaded the note goes away.
+        self.post("opening", "o.csv", COUNT_CSV, audit=sep)
+        self.assertNotContains(self.client.get(reverse("audit_detail", args=[sep.pk])), "First month for this outlet")
+
     def test_january_looks_at_december(self):
         self.assertEqual(services.previous_period("2027-01"), "2026-12")
 
