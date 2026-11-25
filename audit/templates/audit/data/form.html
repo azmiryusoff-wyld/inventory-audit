@@ -1,18 +1,18 @@
-{% extends "audit/base.html" %}
+{% extends "audit/base.html" %}{% load audit_tags %}
 {% block content %}
 {% include "audit/data/_nav.html" %}
-<p><a href="{{ back }}">← Back</a></p>
-<h2>{{ title }}</h2>
+<a class="back-link" href="{{ back }}">{% icon "back" 14 %} Back</a>
+<h2 style="margin-top:0;font-size:18px">{{ title }}</h2>
 <form method="post" class="card">{% csrf_token %}
-  {% if form.non_field_errors %}<div class="msg error">{{ form.non_field_errors|join:" " }}</div>{% endif %}
+  {% if form.non_field_errors %}<div class="msg error">{% icon "alert" %}<div class="msg-body">{{ form.non_field_errors|join:" " }}</div></div>{% endif %}
   <div class="form-grid">
   {% for field in form %}
     <label for="{{ field.id_for_label }}">{{ field.label }}</label>
     <div>{{ field }}{% if field.help_text %}<div class="help">{{ field.help_text }}</div>{% endif %}{{ field.errors }}</div>
   {% endfor %}
   </div>
-  <p style="margin-top:14px"><button>Save</button> <a href="{{ back }}" style="margin-left:8px">Cancel</a>
-  {% if recipe_link %} · <a href="{{ recipe_link }}">Recipe</a>{% endif %}</p>
+  <div class="form-actions"><button>Save</button> <a class="btn secondary" href="{{ back }}">Cancel</a>
+  {% if recipe_link %}<a class="btn link" href="{{ recipe_link }}">Recipe</a>{% endif %}</div>
 </form>
 {% for id, options in datalists.items %}<datalist id="{{ id }}">{% for value, label in options %}<option value="{{ value }}">{{ label }}</option>{% endfor %}</datalist>{% endfor %}
 {% endblock %}

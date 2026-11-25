@@ -1,7 +1,7 @@
 {% extends "audit/base.html" %}{% load audit_tags %}
 {% block content %}
-<h1>{{ brand.code }} menu costing</h1>
-<p class="muted">Cost is the recipe at cost per base unit (as in 23 Menu Master). COGS % here uses the price <strong>without</strong> {{ brand.sales_tax_rate|pct:0 }} SST, as the workbook does; the audit dashboards use prices with SST, as the POS does, so their % is a little lower. "With yield" adds yield loss and substitutions, as the audit uses.</p>
+<div class="page-head"><div class="titles"><div class="eyebrow">{{ brand.name }}</div><h1>{{ brand.code }} menu costing</h1>
+<p class="sub">Cost is the recipe at cost per base unit (as in 23 Menu Master). COGS % here uses the price <strong>without</strong> {{ brand.sales_tax_rate|pct:0 }} SST, as the workbook does; the audit dashboards use prices with SST, as the POS does, so their % is a little lower. "With yield" adds yield loss and substitutions, as the audit uses.</p></div><div class="actions"><a class="btn secondary" href="{% url 'data_menu' brand.code %}">Menu items</a><a class="btn secondary" href="{% url 'data_recipes' brand.code %}">Recipes</a></div></div>
 <div class="scroll"><table>
   <tr><th>SKU</th><th>Menu item</th><th>Category</th><th class="n">Price</th><th class="n">Cost</th><th class="n">COGS %</th><th class="n">Cost with yield</th></tr>
   {% for r in rows %}

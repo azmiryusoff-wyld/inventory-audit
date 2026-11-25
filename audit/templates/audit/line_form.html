@@ -1,21 +1,21 @@
-{% extends "audit/base.html" %}
+{% extends "audit/base.html" %}{% load audit_tags %}
 {% block content %}
-<p><a href="{{ back }}">← {{ audit }} · Uploaded data</a></p>
-<h1>{% if line.pk %}Edit{% else %}Add{% endif %} {{ label|lower }}</h1>
-<p class="muted">The change is recorded under History with the old and new values, and the month's reports update straight away.</p>
+<a class="back-link" href="{{ back }}">{% icon "back" 14 %} {{ audit }} · Uploaded data</a>
+<div class="page-head"><div class="titles"><h1>{% if line.pk %}Edit{% else %}Add{% endif %} {{ label|lower }}</h1>
+<p class="sub">The change is recorded under History with the old and new values, and the month's reports update straight away.</p></div></div>
 <form method="post" class="card">{% csrf_token %}
-  {% if form.non_field_errors %}<div class="msg error">{{ form.non_field_errors|join:" " }}</div>{% endif %}
+  {% if form.non_field_errors %}<div class="msg error">{% icon "alert" %}<div class="msg-body">{{ form.non_field_errors|join:" " }}</div></div>{% endif %}
   <div class="form-grid">
   {% for field in form %}
     <label for="{{ field.id_for_label }}">{{ field.label }}</label>
     <div>{{ field }}{% if field.help_text %}<div class="help">{{ field.help_text }}</div>{% endif %}{{ field.errors }}</div>
   {% endfor %}
   </div>
-  <p style="margin-top:14px"><button>Save</button> <a href="{{ back }}" style="margin-left:8px">Cancel</a></p>
+  <div class="form-actions"><button>Save</button> <a class="btn secondary" href="{{ back }}">Cancel</a></div>
 </form>
 {% if line.pk %}
 <form method="post" onsubmit="return confirm('Delete this line? It is recorded under History.')">{% csrf_token %}
-  <input type="hidden" name="action" value="delete"><button class="secondary">Delete this line</button>
+  <input type="hidden" name="action" value="delete"><button class="danger">Delete this line</button>
 </form>
 {% endif %}
 {% if item_skus %}<datalist id="item-skus">{% for sku, name in item_skus %}<option value="{{ sku }}">{{ name }}</option>{% endfor %}</datalist>{% endif %}

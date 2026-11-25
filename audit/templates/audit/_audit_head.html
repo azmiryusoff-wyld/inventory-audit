@@ -1,26 +1,37 @@
-<h1>{{ audit.outlet }} · {{ audit.period }} <span class="pill {{ status.code }}" title="{{ status.reasons|join:'; ' }}">{{ status.label }}</span>{% if audit.locked %} <span class="pill LOCKED">Signed off</span>{% endif %}</h1>
-<p class="muted" style="margin:0">{{ status.reasons|join:" · " }}</p>
-{% if audit.locked %}
-<div class="msg locked">
-  <strong>Signed off{% if audit.locked_at %} on {{ audit.locked_at|date:"j M Y, H:i" }}{% endif %}{% if audit.locked_by %} by {{ audit.locked_by }}{% endif %}.</strong>
-  The numbers are frozen as they were at sign-off: later recipe, price or menu changes don't change this month, and files can't be uploaded.
-  {% if can_sign_off %}<form method="post" action="{% url 'audit_sign_off' audit.pk %}" class="inline" style="display:inline-flex;margin-left:8px"
-        onsubmit="return confirm('Unlock {{ audit|escapejs }}? Its numbers will follow today\'s recipes and prices again.')">{% csrf_token %}
-    <input type="hidden" name="action" value="unlock"><button class="secondary">Unlock</button></form>{% endif %}
+{% load audit_tags %}<a class="back-link" href="{% url 'home' %}">{% icon "back" 14 %} All audits</a>
+<div class="page-head">
+  <div class="titles">
+    <div class="eyebrow">{{ audit.outlet.brand.code }} · Monthly audit</div>
+    <h1>{{ audit.outlet }} · {{ audit.period }} <span class="pill {{ status.code }}" title="{{ status.reasons|join:'; ' }}">{{ status.label }}</span>{% if audit.locked %} <span class="pill LOCKED">Signed off</span>{% endif %}</h1>
+    <p class="sub">{{ status.reasons|join:" · " }}</p>
+  </div>
+  <div class="actions">
+    <a class="btn secondary" href="{% url 'audit_export' audit.pk %}">{% icon "download" 16 %} Download Excel</a>
+    {% if not audit.locked and can_sign_off %}
+    <form method="post" action="{% url 'audit_sign_off' audit.pk %}"
+          onsubmit="return confirm('Sign off {{ audit|escapejs }}? This freezes its numbers and stops further uploads.')">{% csrf_token %}
+      <button title="{% if status.code != 'PASS' %}Status is {{ status.label }}; check it before you sign off.{% endif %}">{% icon "lock" 16 %} Sign off this month</button>
+    </form>
+    {% endif %}
+  </div>
 </div>
-{% elif can_sign_off %}
-<form method="post" action="{% url 'audit_sign_off' audit.pk %}" class="inline" style="margin-top:8px"
-      onsubmit="return confirm('Sign off {{ audit|escapejs }}? This freezes its numbers and stops further uploads.')">{% csrf_token %}
-  <button>Sign off this month</button>
-  {% if status.code != "PASS" %}<span class="muted">Status is {{ status.label }}; check it before you sign off.</span>{% endif %}
-</form>
+{% if not audit.locked and can_sign_off and status.code != "PASS" %}
+<div class="msg warning">{% icon "alert" %}<div class="msg-body">Status is <strong>{{ status.label }}</strong>; check it before you sign off.</div></div>
 {% endif %}
-<div class="tabs">
+{% if audit.locked %}
+<div class="msg locked">{% icon "lock" %}
+  <div class="msg-body"><strong>Signed off{% if audit.locked_at %} on {{ audit.locked_at|date:"j M Y, H:i" }}{% endif %}{% if audit.locked_by %} by {{ audit.locked_by }}{% endif %}.</strong>
+  The numbers are frozen as they were at sign-off: later recipe, price or menu changes don't change this month, and files can't be uploaded.</div>
+  {% if can_sign_off %}<form method="post" action="{% url 'audit_sign_off' audit.pk %}" style="margin:0"
+        onsubmit="return confirm('Unlock {{ audit|escapejs }}? Its numbers will follow today\'s recipes and prices again.')">{% csrf_token %}
+    <input type="hidden" name="action" value="unlock"><button class="secondary sm">{% icon "unlock" 14 %} Unlock</button></form>{% endif %}
+</div>
+{% endif %}
+<nav class="tabs" aria-label="Audit sections">
   <a href="{% url 'audit_detail' audit.pk %}" class="{% if tab == 'overview' %}on{% endif %}">Dashboard</a>
   <a href="{% url 'audit_variance' audit.pk %}" class="{% if tab == 'variance' %}on{% endif %}">Variance &amp; inventory</a>
   <a href="{% url 'audit_menu' audit.pk %}" class="{% if tab == 'menu' %}on{% endif %}">Menu engineering</a>
   <a href="{% url 'audit_consumption' audit.pk %}" class="{% if tab == 'consumption' %}on{% endif %}">Consumption</a>
   <a href="{% url 'audit_inputs' audit.pk %}" class="{% if tab == 'inputs' %}on{% endif %}">Uploaded data</a>
   <a href="{% url 'audit_history' audit.pk %}" class="{% if tab == 'history' %}on{% endif %}">History</a>
-  <a href="{% url 'audit_export' audit.pk %}" style="margin-left:auto">Download Excel</a>
-</div>
+</nav>

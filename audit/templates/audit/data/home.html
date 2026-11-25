@@ -1,7 +1,7 @@
 {% extends "audit/base.html" %}
 {% block content %}
 {% include "audit/data/_nav.html" %}
-<p class="muted">Menus, recipes and semi-finished items are kept per brand. The item master is shared by every brand and comes from the central workbook.</p>
+<p class="lead">Menus, recipes and semi-finished items are kept per brand. The item master is shared by every brand and comes from the central workbook.</p>
 <div class="scroll"><table>
   <tr><th>Brand</th><th class="n">Menu items</th><th class="n">Recipes</th><th></th></tr>
   {% for b in brand_rows %}

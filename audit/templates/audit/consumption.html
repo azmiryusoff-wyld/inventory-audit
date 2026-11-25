@@ -1,8 +1,8 @@
 {% extends "audit/base.html" %}{% load audit_tags %}
 {% block content %}
 {% include "audit/_audit_head.html" %}
-<p class="muted">Theoretical usage from recipes: gross = net ÷ yield, valued at cost per base unit. Substitutions already applied.</p>
-<div class="toolbar"><input type="search" placeholder="Search SKU or item" data-filter="consumption-table" aria-label="Search"> <span id="consumption-table-count" class="muted"></span></div>
+<p class="lead">Theoretical usage from recipes: gross = net ÷ yield, valued at cost per base unit. Substitutions already applied.</p>
+<div class="toolbar"><input type="search" placeholder="Search SKU or item" data-filter="consumption-table" aria-label="Search"> <span id="consumption-table-count" class="muted count"></span></div>
 <div class="scroll"><table class="sortable" id="consumption-table">
   <tr><th>SKU</th><th>Item</th><th>Category</th><th class="n">Net</th><th>Unit</th><th class="n"><abbr title="Usable share after trimming or cooking loss. Gross = net ÷ yield.">Yield</abbr></th><th class="n">Gross</th><th class="n">Cost per unit</th><th class="n">Theoretical</th><th>Status</th></tr>
   {% for r in result.consumption %}{% if r.net %}

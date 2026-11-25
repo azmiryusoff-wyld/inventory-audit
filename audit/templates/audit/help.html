@@ -1,8 +1,8 @@
 {% extends "audit/base.html" %}
 {% block content %}
-<h1>Help</h1>
+<div class="page-head"><div class="titles"><h1>Help</h1><p class="sub">The monthly routine, the words the app uses, and who does what.</p></div></div>
 <div class="card">
-<h2 style="margin-top:0">The monthly routine</h2>
+<h2 class="card-title">The monthly routine</h2>
 <ol class="steps">
   <li><strong>Start the month</strong> on <a href="{% url 'month_close' %}">Month close</a> (every outlet at once) or on <a href="{% url 'home' %}">Audits</a>. Opening stock is copied from last month's closing count. In an outlet's first month in the app, upload last month's closing count from the old workbook as opening stock.</li>
   <li><strong>Chef:</strong> upload the POS item sales report. Link any POS names that aren't on the menu straight from the Data checks list. Add wastage or B2B production on Uploaded data.</li>
@@ -12,8 +12,8 @@
 </ol>
 </div>
 <div class="card">
-<h2 style="margin-top:0">Words used in the app</h2>
-<dl>
+<h2 class="card-title">Words used in the app</h2>
+<dl class="terms">
   <dt><strong>COGS</strong></dt><dd>Cost of goods sold: what the ingredients and packaging used in the month cost.</dd>
   <dt><strong>Theoretical COGS</strong></dt><dd>What it should have cost, from the recipes of everything sold, produced, transferred or wasted.</dd>
   <dt><strong>Actual COGS</strong></dt><dd>What it did cost: opening stock + purchases − closing stock.</dd>
@@ -34,7 +34,7 @@
 </dl>
 </div>
 <div class="card">
-<h2 style="margin-top:0">Who does what</h2>
+<h2 class="card-title">Who does what</h2>
 <ul>
   <li><strong>Chef:</strong> menus, recipes, semi-finished items, substitutions, POS sales, linking POS names, wastage.</li>
   <li><strong>Procurement:</strong> purchases and stock counts. Can see menus and recipes but not change them.</li>

@@ -1,13 +1,13 @@
 {% extends "audit/base.html" %}{% load audit_tags %}
 {% block content %}
 {% include "audit/data/_nav.html" %}
-<p><a href="{% url 'data_recipes' brand.code %}">← Recipes</a></p>
-<h2>{% if recipe.pk %}{{ recipe }}{% else %}New recipe{% endif %}</h2>
+<a class="back-link" href="{% url 'data_recipes' brand.code %}">{% icon "back" 14 %} Recipes</a>
+<h2 style="margin-top:0;font-size:18px">{% if recipe.pk %}{{ recipe }}{% else %}New recipe{% endif %}</h2>
 {% if recipe.pk %}<div class="grid">
-  <div class="card kpi"><div class="label">Cost per unit, with yield</div><div class="value">{% if portion is not None %}{{ currency }} {{ portion|num:4 }}{% else %}-{% endif %}</div><div class="muted">at today's item master prices</div></div>
+  <div class="card kpi"><div class="label"><span class="kpi-icon">{% icon "sales" 16 %}</span>Cost per unit, with yield</div><div class="value">{% if portion is not None %}{{ currency }} {{ portion|num:4 }}{% else %}-{% endif %}</div><div class="muted">at today's item master prices</div></div>
 </div>{% endif %}
 <form method="post" class="card">{% csrf_token %}
-  {% if form.non_field_errors %}<div class="msg error">{{ form.non_field_errors|join:" " }}</div>{% endif %}
+  {% if form.non_field_errors %}<div class="msg error">{% icon "alert" %}<div class="msg-body">{{ form.non_field_errors|join:" " }}</div></div>{% endif %}
   <div class="form-grid">
   {% for field in form %}
     <label for="{{ field.id_for_label }}">{{ field.label }}</label>
@@ -18,12 +18,12 @@
   <p class="muted">An item master SKU (quantity in its base unit: g, ml, pcs) or a semi-finished SKU of {{ brand.code }}. Start typing to pick. Clear both boxes of a line to remove it.</p>
   {{ lines.management_form }}
   {% if lines.non_form_errors %}<div class="msg error">{{ lines.non_form_errors|join:" " }}</div>{% endif %}
-  <div class="scroll"><table id="lines">
+  <div class="scroll" style="max-width:760px"><table id="lines">
     <tr><th>SKU</th><th>Quantity per batch</th></tr>
     {% for f in lines %}<tr><td>{{ f.component }}{{ f.component.errors }}{{ f.non_field_errors }}</td><td>{{ f.qty }}{{ f.qty.errors }}</td></tr>{% endfor %}
   </table></div>
-  {% if can_edit %}<p><button type="button" class="secondary" id="add-line">Add another line</button></p>
-  <p style="margin-top:14px"><button>Save recipe</button></p>{% endif %}
+  {% if can_edit %}<p><button type="button" class="secondary sm" id="add-line">{% icon "plus" 14 %} Add another line</button></p>
+  <div class="form-actions"><button>Save recipe</button></div>{% endif %}
 </form>
 {% if rows %}
 <h2>Saved ingredients</h2>
@@ -35,7 +35,7 @@
 {% endif %}
 {% if recipe.pk and perms.audit.delete_recipe %}
 <form method="post" action="{% url 'data_recipe_delete' brand.code recipe.pk %}" style="margin-top:14px" onsubmit="return confirm('Delete this recipe? The menu item will then cost nothing until it has a recipe again.')">{% csrf_token %}
-  <button class="secondary">Delete recipe</button></form>
+  <button class="danger">Delete recipe</button></form>
 {% endif %}
 <datalist id="component-skus">{% for sku, name in components %}<option value="{{ sku }}">{{ name }}</option>{% endfor %}</datalist>
 <script>

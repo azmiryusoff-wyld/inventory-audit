@@ -1,0 +1,23 @@
+{% extends "_auth_base.html" %}{% load audit_tags %}
+{% block box %}
+<h1>Welcome back</h1>
+<p class="muted" style="margin:0 0 8px">Log in with the username and password the CEO set up for you.</p>
+{% if form.errors and not form.non_field_errors %}
+<div class="msg error">{% icon "alert" %}<div class="msg-body">{% if form.errors.items|length == 1 %}Please correct the error below.{% else %}Please correct the errors below.{% endif %}</div></div>
+{% endif %}
+{% if form.non_field_errors %}{% for error in form.non_field_errors %}
+<div class="msg error">{% icon "alert" %}<div class="msg-body">{{ error }}</div></div>
+{% endfor %}{% endif %}
+{% if user.is_authenticated %}
+<div class="msg warning">{% icon "info" %}<div class="msg-body">You are logged in as {{ user.get_username }}, but this page needs an admin account. <a href="/">Go to the app</a> or log in as someone else.</div></div>
+{% endif %}
+<form action="{{ app_path }}" method="post" id="login-form">{% csrf_token %}
+  <label class="field"><span>{{ form.username.label }}</span>{{ form.username }}</label>
+  {{ form.username.errors }}
+  <label class="field"><span>{{ form.password.label }}</span>{{ form.password }}</label>
+  {{ form.password.errors }}
+  <input type="hidden" name="next" value="{{ next }}">
+  <button type="submit">Log in</button>
+</form>
+<p class="muted" style="font-size:12.5px;margin-top:18px">Forgot your password? Ask the CEO to reset it under Admin › Users.</p>
+{% endblock %}

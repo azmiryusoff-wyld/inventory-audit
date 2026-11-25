@@ -1,0 +1,7 @@
+{% extends "_auth_base.html" %}{% load audit_tags %}
+{% block title %}Logged out{% endblock %}
+{% block box %}
+<h1>You're logged out</h1>
+<p class="muted">Thanks for checking in. Close this tab, or log in again.</p>
+<a class="btn" style="width:100%;margin-top:18px;min-height:42px" href="{% url 'admin:login' %}?next=/">Log in again</a>
+{% endblock %}

@@ -1,7 +1,7 @@
 {% extends "audit/base.html" %}{% load audit_tags %}
 {% block content %}
 {% include "audit/data/_nav.html" %}
-<h2>{{ item.sku }} {{ item.name }}</h2>
+<h2 style="margin-top:0;font-size:18px">{{ item.sku }} · {{ item.name }}</h2>
 <div class="grid">
   <div class="card kpi"><div class="label">Category</div><div class="value">{{ item.category }}</div></div>
   <div class="card kpi"><div class="label">Pack</div><div class="value">{{ item.pack_size|num:0 }} {{ item.base_uom }}</div><div class="muted">{{ item.pack_uom }}</div></div>

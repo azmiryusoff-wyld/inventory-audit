@@ -1,7 +1,7 @@
 {% extends "audit/base.html" %}
 {% block content %}
 {% include "audit/data/_nav.html" %}
-<p class="muted">Every change to menus, recipes, semi-finished items and substitutions, and every upload and line fix, newest first.</p>
+<p class="lead">Every change to menus, recipes, semi-finished items and substitutions, and every upload and line fix, newest first.</p>
 <form method="get" class="toolbar"><input type="search" name="q" value="{{ q }}" placeholder="Search item, user or type" aria-label="Search"> <button class="secondary">Search</button></form>
 <div class="scroll"><table>
   <tr><th>When</th><th>Who</th><th>What</th><th>Audit</th><th>Details</th></tr>

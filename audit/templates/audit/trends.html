@@ -1,29 +1,30 @@
 {% extends "audit/base.html" %}{% load audit_tags %}
 {% block content %}
-<h1>Trends</h1>
-<p class="muted">Audits by outlet and month{% if not f.brand and not f.outlet and not f.to and f.from %}, last 12 months{% endif %}. Click a heading to sort, a month to open the audit.</p>
+<div class="page-head"><div class="titles"><h1>Trends</h1>
+<p class="sub">Audits by outlet and month{% if not f.brand and not f.outlet and not f.to and f.from %}, last 12 months{% endif %}. Click a heading to sort, a month to open the audit.</p></div></div>
 <form method="get" class="toolbar">
   <select name="brand" aria-label="Brand"><option value="">All brands</option>{% for b in brands %}<option value="{{ b.code }}" {% if f.brand == b.code %}selected{% endif %}>{{ b.code }} {{ b.name }}</option>{% endfor %}</select>
   <select name="outlet" aria-label="Outlet"><option value="">All outlets</option>{% for o in outlets %}<option value="{{ o.pk }}" {% if f.outlet == o.pk|stringformat:"d" %}selected{% endif %}>{{ o }}</option>{% endfor %}</select>
   <label>From <input type="month" name="from" value="{{ f.from }}"></label>
   <label>To <input type="month" name="to" value="{{ f.to }}"></label>
-  <button class="secondary">Show</button> <a href="{% url 'trends' %}">Reset</a>
-  <span class="muted">{{ rows|length }} audit{{ rows|length|pluralize }}</span>
+  <button class="secondary">Show</button> <a class="btn link" href="{% url 'trends' %}">Reset</a>
+  <span class="muted count">{{ rows|length }} audit{{ rows|length|pluralize }}</span>
 </form>
-<div class="scroll"><table class="sortable" id="trends-table">
+{% if rows %}<div class="card">
+  <div class="card-head"><h2>F&amp;B variance % by audit</h2>
+    <div class="legend"><span><i style="background:var(--good)"></i>Within tolerance</span><span><i style="background:#ef4444"></i>Outside tolerance</span><span><i style="background:rgba(15,118,110,.18)"></i>Tolerance band</span></div></div>
+  <div id="trends-chart" class="chart" data-tolerance="0.02"></div>
+  <p class="note">Bars to the right: more was used than the recipes say. First 24 rows of the table below, in the same order.</p>
+</div>{% endif %}
+<div class="scroll"><table class="sortable" id="trends-table" data-totals>
   <thead><tr><th>Brand</th><th>Outlet</th><th>Month</th><th class="n">Sales</th><th class="n">Theoretical F&amp;B %</th><th class="n">Actual F&amp;B %</th><th class="n">Variance</th><th class="n">Variance %</th><th>Status</th></tr></thead>
   <tbody>
   {% for r in rows %}
-  <tr><td>{{ r.audit.outlet.brand.code }}</td><td>{{ r.audit.outlet.name }}</td><td><a href="{% url 'audit_detail' r.audit.pk %}">{{ r.audit.period }}</a></td>
+  <tr data-label="{{ r.audit.outlet }} · {{ r.audit.period }}" data-var="{{ r.variance_fb_pct|default_if_none:'' }}" data-var-text="{{ r.variance_fb_pct|pct }}" data-tol="{{ r.audit.variance_tolerance }}"><td>{{ r.audit.outlet.brand.code }}</td><td>{{ r.audit.outlet.name }}</td><td><a href="{% url 'audit_detail' r.audit.pk %}">{{ r.audit.period }}</a></td>
       <td class="n">{{ r.total_sales|money }}</td><td class="n">{{ r.theoretical_fb_pct|pct }}</td><td class="n">{{ r.actual_fb_pct|pct }}</td>
       <td class="n">{{ r.variance_fb|money }}</td><td class="n">{{ r.variance_fb_pct|pct }}</td><td><span class="pill {{ r.status.code }}" title="{{ r.status.reasons|join:'; ' }}">{{ r.status.label }}</span>{% if r.audit.locked %} <span class="pill LOCKED">Signed off</span>{% endif %}</td></tr>
   {% empty %}<tr data-empty><td colspan="9" class="muted">No audits for these filters.</td></tr>{% endfor %}
   </tbody>
   {% if rows %}<tfoot><tr><td colspan="3">Total</td><td class="n" data-sum></td><td></td><td></td><td class="n" data-sum></td><td></td><td></td></tr></tfoot>{% endif %}
 </table></div>
-<script>document.querySelectorAll("#trends-table tfoot [data-sum]").forEach(function (c) {
-  var i = c.cellIndex, s = 0; document.querySelectorAll("#trends-table tbody tr").forEach(function (r) {
-    var t = (r.cells[i] ? r.cells[i].textContent : "").replace(/,/g, "").trim(); var neg = /^\(.*\)$/.test(t);
-    var v = parseFloat(t.replace(/[()]/g, "")); if (!isNaN(v)) s += neg ? -v : v; });
-  var a = Math.abs(s).toLocaleString("en-US", {minimumFractionDigits: 2, maximumFractionDigits: 2}); c.textContent = s < 0 ? "(" + a + ")" : a; });</script>
 {% endblock %}

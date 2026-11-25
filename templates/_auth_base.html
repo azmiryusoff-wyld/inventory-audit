@@ -1,0 +1,30 @@
+{% load static audit_tags %}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}Log in{% endblock %} · Inventory Audit</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{% static 'audit/app.css' %}">
+</head>
+<body>
+<div class="auth">
+  <div class="side">
+    <div class="logo"><span class="logo-mark">{% icon "check" 18 %}</span> Inventory Audit</div>
+    <div>
+      <h2>Monthly COGS and stock audits for every outlet.</h2>
+      <p>Upload the month's files, fix what the checks find, and see where the stock went.</p>
+      <ul>
+        <li>{% icon "check-circle" %} Theoretical against actual cost, per item</li>
+        <li>{% icon "check-circle" %} Menu engineering and menu costing</li>
+        <li>{% icon "check-circle" %} Sign-off that freezes the month</li>
+      </ul>
+    </div>
+    <p style="font-size:12px">WYLD Group</p>
+  </div>
+  <div class="panel"><div class="box">{% block box %}{% endblock %}</div></div>
+</div>
+<script src="{% static 'audit/app.js' %}"></script>
+</body>
+</html>

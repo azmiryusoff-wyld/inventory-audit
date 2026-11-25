@@ -3,86 +3,121 @@
 {% include "audit/_audit_head.html" %}
 
 {% if not brand_ready %}
-<div class="msg warning"><strong>{{ audit.brand.code }} isn't set up yet.</strong> It has no menu items or recipes in the app,
+<div class="msg warning">{% icon "alert" %}<div class="msg-body"><strong>{{ audit.brand.code }} isn't set up yet.</strong> It has no menu items or recipes in the app,
   so every POS item shows as "not on the menu" and costs are RM 0. HQ imports the brand's workbook once
-  (see the README, "Each brand's menu, recipes and semi-finished items"); after that, reopen this page.</div>
+  (see the README, "Each brand's menu, recipes and semi-finished items"); after that, reopen this page.</div></div>
 {% endif %}
 
-<div class="card">
-  <h2 style="margin-top:0">Monthly files</h2>
-  <table>
-  {% for key, info in uploads.items %}
-    <tr><td><strong>{{ info.0 }}</strong><div class="muted">{{ info.1 }}</div>
-          {% if key == "opening" and first_month and not audit.locked %}{% for k, v in counts.items %}{% if k == "opening" and not v %}
-          <div class="msg warning" style="margin:6px 0">First month for this outlet in the app: upload last month's closing count from the old workbook as opening stock. From next month it is filled in automatically.</div>
-          {% endif %}{% endfor %}{% endif %}
-          <div><a href="{% url 'upload_template' key %}">Download empty template (.csv)</a>
-            <span class="muted"> · Example line: {{ info.3 }}</span></div></td>
-        {% for k, v in counts.items %}{% if k == key %}
-        <td class="n">{{ v }} line{{ v|pluralize }}</td>
-        <td>{% if audit.locked %}<span class="muted">Signed off</span>{% elif info.2 %}<form method="post" enctype="multipart/form-data" action="{% url 'audit_upload' audit.pk key %}" class="inline"
-              {% if v %}onsubmit="return confirm('This replaces the {{ v }} line{{ v|pluralize }} already loaded for {{ info.0|escapejs }}. Continue?')"{% endif %}>{% csrf_token %}
-          <input type="file" name="file" accept=".xlsx,.xlsm,.csv,.txt" required><button>{% if v %}Replace{% else %}Upload{% endif %}</button></form>
-          {% if key == "opening" and can_copy_opening %}<form method="post" action="{% url 'audit_copy_opening' audit.pk %}" class="inline" style="margin-top:6px"
-              {% if v %}onsubmit="return confirm('Replace the {{ v }} opening line{{ v|pluralize }} with {{ previous_period }}\'s closing count?')"{% endif %}>{% csrf_token %}
-            <button class="secondary">Copy {{ previous_period }}'s closing count</button></form>{% endif %}
-          {% else %}<span class="muted">Uploaded by procurement</span>{% endif %}</td>
-        {% endif %}{% endfor %}</tr>
-  {% endfor %}
-  </table>
-  <p class="muted">Uploading a file again replaces that file's lines. A file that can't be read, or has no lines, changes nothing. Production, transfers and wastage are added on <a href="{% url 'audit_inputs' audit.pk %}#production">Uploaded data</a>, in the item's base unit (g, ml, pcs) or in portions for menu items. One wrong line can be fixed there too.</p>
-</div>
-
 <div class="grid">
-  <div class="card kpi"><div class="label">Total sales (POS)</div><div class="value">{{ currency }} {{ dash.total_sales|money }}</div>
+  <div class="card kpi"><div class="label"><span class="kpi-icon">{% icon "sales" 16 %}</span>Total sales (POS)</div>
+    <div class="value"><span class="unit">{{ currency }}</span>{{ dash.total_sales|money }}</div>
     <div class="muted">Units sold × menu price, SST included{% if excluded.pos_unmatched %}. Leaves out {{ excluded.pos_unmatched|cut:" not counted in sales or COGS" }} not on the menu{% endif %}</div></div>
-  <div class="card kpi"><div class="label"><abbr title="Cost of goods sold for Food &amp; Beverage, worked out from the recipes of everything sold, produced or wasted: what it should have cost.">Theoretical F&amp;B COGS</abbr></div><div class="value">{{ currency }} {{ dash.theoretical_fb|money }}</div><div class="muted">{{ dash.theoretical_fb_pct|pct }} of sales</div></div>
-  <div class="card kpi"><div class="label"><abbr title="What the Food &amp; Beverage stock actually cost: opening stock + purchases − closing stock.">Actual F&amp;B COGS</abbr></div><div class="value">{{ currency }} {{ dash.actual_fb|money }}</div><div class="muted">{{ dash.actual_fb_pct|pct }} of sales{% if excluded.purchase_unknown or excluded.count_unknown %}. Unknown SKUs left out: {% if excluded.purchase_unknown %}purchases {{ excluded.purchase_unknown|cut:" not counted in actual COGS" }}{% endif %}{% if excluded.purchase_unknown and excluded.count_unknown %}, {% endif %}{% if excluded.count_unknown %}stock {{ excluded.count_unknown|cut:" of stock not counted" }}{% endif %}{% endif %}</div></div>
-  <div class="card kpi"><div class="label"><abbr title="Actual minus theoretical. Positive (red) means more was used than the recipes say: waste, over-portioning, theft or a missing count.">F&amp;B variance</abbr> (actual − theoretical)</div><div class="value {% if variance_outside %}pos{% else %}neg{% endif %}">{{ currency }} {{ dash.variance_fb|money }}</div>
+  <div class="card kpi"><div class="label"><span class="kpi-icon">{% icon "target" 16 %}</span><abbr title="Cost of goods sold for Food &amp; Beverage, worked out from the recipes of everything sold, produced or wasted: what it should have cost.">Theoretical F&amp;B COGS</abbr></div>
+    <div class="value"><span class="unit">{{ currency }}</span>{{ dash.theoretical_fb|money }}</div><div class="muted">{{ dash.theoretical_fb_pct|pct }} of sales</div></div>
+  <div class="card kpi"><div class="label"><span class="kpi-icon">{% icon "box" 16 %}</span><abbr title="What the Food &amp; Beverage stock actually cost: opening stock + purchases − closing stock.">Actual F&amp;B COGS</abbr></div>
+    <div class="value"><span class="unit">{{ currency }}</span>{{ dash.actual_fb|money }}</div><div class="muted">{{ dash.actual_fb_pct|pct }} of sales{% if excluded.purchase_unknown or excluded.count_unknown %}. Unknown SKUs left out: {% if excluded.purchase_unknown %}purchases {{ excluded.purchase_unknown|cut:" not counted in actual COGS" }}{% endif %}{% if excluded.purchase_unknown and excluded.count_unknown %}, {% endif %}{% if excluded.count_unknown %}stock {{ excluded.count_unknown|cut:" of stock not counted" }}{% endif %}{% endif %}</div></div>
+  <div class="card kpi {% if variance_outside %}tone-bad{% else %}tone-good{% endif %}"><div class="label"><span class="kpi-icon">{% icon "activity" 16 %}</span><span><abbr title="Actual minus theoretical. Positive (red) means more was used than the recipes say: waste, over-portioning, theft or a missing count.">F&amp;B variance</abbr> (actual − theoretical)</span></div>
+    <div class="value {% if variance_outside %}pos{% else %}neg{% endif %}"><span class="unit">{{ currency }}</span>{{ dash.variance_fb|money }}</div>
     <div class="muted">{% if dash.theoretical_fb %}{{ dash.variance_fb_pct|pct }} of theoretical{% else %}no theoretical cost yet{% endif %} · {% if variance_outside %}outside{% else %}within{% endif %} the {{ audit.variance_tolerance|pct }} tolerance{% if variance_outside and dash.variance_fb < 0 %}. Using less than the recipes say usually means missing sales, a missed purchase or a count error{% endif %}</div></div>
 </div>
 
-<h2>COGS by category</h2>
-<div class="scroll"><table>
-  <tr><th>Category</th><th class="n">Theoretical</th><th class="n">Actual</th><th class="n">Variance</th><th class="n">Actual % of sales</th></tr>
-  {% for c in dash.by_category %}
-  <tr><td>{{ c.category }}</td><td class="n">{{ c.theoretical|money }}</td><td class="n">{{ c.actual|money }}</td><td class="n">{{ c.variance|money }}</td><td class="n">{{ c.pct_of_sales|pct }}</td></tr>
-  {% endfor %}
-</table></div>
+<div class="card">
+  <div class="card-head"><h2>{% icon "upload" 18 %} Monthly files</h2>
+    <span class="muted" style="font-size:12.5px">Uploading a file again replaces that file's lines.</span></div>
+  <div class="uploads">
+  {% for key, info in uploads.items %}{% for k, v in counts.items %}{% if k == key %}
+    <div class="upload {% if not v %}is-missing{% endif %}">
+      <div class="u-head">
+        <span class="u-icon">{% icon "file" 17 %}</span>
+        <div><div class="u-title">{{ info.0 }}</div><div class="u-desc">{{ info.1 }}</div></div>
+        <span class="u-status">{% if v %}<span class="pill PASS">{{ v }} line{{ v|pluralize }}</span>{% elif key == "interco" %}<span class="pill INCOMPLETE">Optional · 0 lines</span>{% else %}<span class="pill INCOMPLETE">Missing · 0 lines</span>{% endif %}</span>
+      </div>
+      {% if key == "opening" and first_month and not audit.locked and not v %}
+      <div class="msg warning">{% icon "info" 16 %}<div class="msg-body">First month for this outlet in the app: upload last month's closing count from the old workbook as opening stock. From next month it is filled in automatically.</div></div>
+      {% endif %}
+      <div class="u-meta"><a href="{% url 'upload_template' key %}">{% icon "download" 14 %} Download empty template (.csv)</a><br>Example line: {{ info.3 }}</div>
+      {% if audit.locked %}<span class="muted">{% icon "lock" 14 %} Signed off</span>
+      {% elif info.2 %}
+      <form method="post" enctype="multipart/form-data" action="{% url 'audit_upload' audit.pk key %}" class="inline"
+            {% if v %}onsubmit="return confirm('This replaces the {{ v }} line{{ v|pluralize }} already loaded for {{ info.0|escapejs }}. Continue?')"{% endif %}>{% csrf_token %}
+        <input type="file" name="file" accept=".xlsx,.xlsm,.csv,.txt" required aria-label="{{ info.0 }} file"><button class="{% if v %}secondary{% endif %}">{% icon "upload" 15 %} {% if v %}Replace{% else %}Upload{% endif %}</button></form>
+        {% if key == "opening" and can_copy_opening %}<form method="post" action="{% url 'audit_copy_opening' audit.pk %}" class="inline"
+            {% if v %}onsubmit="return confirm('Replace the {{ v }} opening line{{ v|pluralize }} with {{ previous_period }}\'s closing count?')"{% endif %}>{% csrf_token %}
+          <button class="secondary sm">Copy {{ previous_period }}'s closing count</button></form>{% endif %}
+      {% else %}<span class="muted">Uploaded by procurement</span>{% endif %}
+    </div>
+  {% endif %}{% endfor %}{% endfor %}
+  </div>
+  <p class="note">A file that can't be read, or has no lines, changes nothing. Production, transfers and wastage are added on <a href="{% url 'audit_inputs' audit.pk %}#production">Uploaded data</a>, in the item's base unit (g, ml, pcs) or in portions for menu items. One wrong line can be fixed there too.</p>
+</div>
 
-<h2>Top 10 leakage, Food &amp; Beverage</h2>
-<p class="muted" style="margin-top:0">Items used more than the recipes say. Share is of all F&amp;B leakage ({{ currency }} {{ dash.leakage_total|money }}).</p>
-<div class="scroll"><table>
-  <tr><th>Item</th><th class="n">Leakage ({{ currency }})</th><th class="n">Share of leakage</th></tr>
-  {% for r in dash.top_leakage %}
-  <tr><td>{{ r.sku }} {{ r.name }}</td><td class="n pos">{{ r.variance|money }}</td><td class="n">{{ r.share|pct }}</td></tr>
-  {% empty %}<tr><td colspan="3" class="muted">No leakage: nothing was used more than the recipes say.</td></tr>{% endfor %}
-</table></div>
-{% if dash.top_gains %}
-<h3 style="font-size:14px;margin:16px 0 6px">Used less than the recipes say</h3>
-<div class="scroll"><table>
-  <tr><th>Item</th><th class="n">Variance ({{ currency }})</th></tr>
-  {% for r in dash.top_gains %}<tr><td>{{ r.sku }} {{ r.name }}</td><td class="n">{{ r.variance|money }}</td></tr>{% endfor %}
-</table></div>
-<p class="muted">Often a sign of a count or purchase that's missing, or a recipe that uses more than is really served.</p>
-{% endif %}
-
-<h2>Data checks</h2>
-<div class="scroll"><table>
-  <tr><th>Check</th><th class="n">Count</th><th>Status</th><th>Who fixes it</th><th>What to do</th></tr>
-  {% for c in checks %}
-  <tr><td>{{ c.label }}</td><td class="n">{{ c.count }}</td><td><span class="pill {% if c.passed %}PASS{% else %}REVIEW{% endif %}">{% if c.passed %}Pass{% else %}Review{% endif %}</span></td>
-      <td>{% if not c.passed %}{{ c.owner }}{% endif %}</td>
-      <td>{% if not c.passed %}{% if c.impact %}<strong>{{ c.impact }}.</strong> {% endif %}{{ c.action }}
-        {% if c.details %}<details{% if c.key == "pos_unmatched" and can_map %} open{% endif %}><summary class="muted">Show {{ c.details|length }}</summary>
-          {% if c.key == "pos_unmatched" and can_map %}
-            {% for d in c.details %}<form method="post" action="{% url 'audit_map_pos_name' audit.pk %}" class="inline" style="margin:4px 0">{% csrf_token %}
-              <input type="hidden" name="pos_name" value="{{ d }}"><span style="min-width:14em">{{ d }}</span>
-              <select name="menu_item" required><option value="">Link to menu item…</option>{% for m in brand_menu %}<option value="{{ m.pk }}">{{ m.name }} ({{ m.sku }})</option>{% endfor %}</select>
-              <button class="secondary">Link</button></form>{% endfor %}
-            <div class="muted">Not on the menu at all? <a href="{% url 'admin:audit_menuitem_add' %}">Add a menu item</a>, then reopen this page.</div>
-          {% else %}{% for d in c.details %}{{ d }}<br>{% endfor %}{% endif %}
-        </details>{% endif %}{% else %}<span class="muted">Nothing to do.</span>{% endif %}</td></tr>
+{% with open=checks|failing done=checks|passing %}
+<div class="card" id="checks">
+  <div class="card-head"><h2>{% icon "check-circle" 18 %} Data checks</h2>
+    <div class="checks-summary">{% if open %}<span class="pill REVIEW">{{ open|length }} to fix</span>{% endif %}<span class="pill PASS">{{ done|length }} of {{ checks|length }} pass</span></div></div>
+  {% if open %}
+  <div class="check-list">
+  {% for c in open %}
+    <div class="check">
+      <span class="c-icon">{% icon "alert" 18 %}</span>
+      <div class="c-title">{{ c.label }} <span class="pill REVIEW">Review · {{ c.count }}</span>{% if c.owner %}<span class="c-owner">Who fixes it: {{ c.owner }}</span>{% endif %}</div>
+      <div class="c-body">{% if c.impact %}<strong>{{ c.impact }}.</strong> {% endif %}{{ c.action }}</div>
+      {% if c.details %}<details{% if c.key == "pos_unmatched" and can_map %} open{% endif %}><summary>Show {{ c.details|length }}</summary>
+        {% if c.key == "pos_unmatched" and can_map %}
+          {% for d in c.details %}<form method="post" action="{% url 'audit_map_pos_name' audit.pk %}" class="inline">{% csrf_token %}
+            <input type="hidden" name="pos_name" value="{{ d }}"><span class="pos-name">{{ d }}</span>
+            <select name="menu_item" required aria-label="Menu item for {{ d }}"><option value="">Link to menu item…</option>{% for m in brand_menu %}<option value="{{ m.pk }}">{{ m.name }} ({{ m.sku }})</option>{% endfor %}</select>
+            <button class="secondary sm">Link</button></form>{% endfor %}
+          <div class="muted">Not on the menu at all? <a href="{% url 'admin:audit_menuitem_add' %}">Add a menu item</a>, then reopen this page.</div>
+        {% else %}<div class="muted">{% for d in c.details %}{{ d }}<br>{% endfor %}</div>{% endif %}
+      </details>{% endif %}
+    </div>
   {% endfor %}
-</table></div>
+  </div>
+  {% else %}
+  <div class="all-clear">{% icon "check-circle" 20 %} All {{ checks|length }} data checks pass. Nothing to do.</div>
+  {% endif %}
+  {% if done %}
+  <details class="passed"{% if not open %} open{% endif %}><summary>{% icon "check" 16 %} {{ done|length }} check{{ done|length|pluralize }} passed</summary>
+    <div class="scroll"><table class="table-plain">
+      <tr><th>Check</th><th class="n">Count</th><th>Status</th><th>What to do</th></tr>
+      {% for c in done %}<tr><td>{{ c.label }}</td><td class="n">{{ c.count }}</td><td><span class="pill PASS">Pass</span></td><td class="muted">Nothing to do.</td></tr>{% endfor %}
+    </table></div>
+  </details>
+  {% endif %}
+</div>
+{% endwith %}
+
+<div class="cols-2">
+<div>
+  <div class="section-head"><h2>COGS by category</h2>
+    <div class="legend"><span><i style="background:#94a3b8"></i>Theoretical</span><span><i style="background:var(--primary)"></i>Actual</span></div></div>
+  <div class="scroll"><table>
+    <tr><th>Category</th><th class="n">Theoretical</th><th class="n">Actual</th><th class="n">Variance</th><th class="n">Actual % of sales</th><th class="bar-cell"><span class="sr-only">Chart</span></th></tr>
+    {% for c in dash.by_category %}
+    <tr><td>{{ c.category }}</td><td class="n">{{ c.theoretical|money }}</td><td class="n">{{ c.actual|money }}</td><td class="n">{{ c.variance|money }}</td><td class="n">{{ c.pct_of_sales|pct }}</td>
+      <td class="bar-cell"><span class="hbar alt" data-bar="{{ c.theoretical }}" data-group="cat"></span><span class="hbar" data-bar="{{ c.actual }}" data-group="cat"></span></td></tr>
+    {% endfor %}
+  </table></div>
+</div>
+
+<div>
+  <div class="section-head"><h2>Top 10 leakage, Food &amp; Beverage</h2></div>
+  <p class="muted" style="margin:-4px 0 10px">Items used more than the recipes say. Share is of all F&amp;B leakage ({{ currency }} {{ dash.leakage_total|money }}).</p>
+  <div class="scroll"><table>
+    <tr><th>Item</th><th class="n">Leakage ({{ currency }})</th><th class="n">Share of leakage</th><th class="bar-cell"><span class="sr-only">Chart</span></th></tr>
+    {% for r in dash.top_leakage %}
+    <tr><td>{{ r.sku }} {{ r.name }}</td><td class="n pos">{{ r.variance|money }}</td><td class="n">{{ r.share|pct }}</td><td class="bar-cell"><span class="hbar bad" data-bar="{{ r.variance }}" data-group="leak"></span></td></tr>
+    {% empty %}<tr><td colspan="4" class="muted">No leakage: nothing was used more than the recipes say.</td></tr>{% endfor %}
+  </table></div>
+  {% if dash.top_gains %}
+  <h3>Used less than the recipes say</h3>
+  <div class="scroll"><table>
+    <tr><th>Item</th><th class="n">Variance ({{ currency }})</th></tr>
+    {% for r in dash.top_gains %}<tr><td>{{ r.sku }} {{ r.name }}</td><td class="n">{{ r.variance|money }}</td></tr>{% endfor %}
+  </table></div>
+  <p class="muted">Often a sign of a count or purchase that's missing, or a recipe that uses more than is really served.</p>
+  {% endif %}
+</div>
+</div>
 {% endblock %}

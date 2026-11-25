@@ -4,8 +4,8 @@
 <form method="get" class="toolbar">
   <input type="search" name="q" value="{{ q }}" placeholder="Search recipe or ingredient (where used)" aria-label="Search">
   <button class="secondary">Search</button>
-  {% if can_edit %}<a class="btn" href="{% url 'data_recipe_new' brand.code %}">New recipe</a>{% endif %}
-  <span class="muted">{{ rows|length }} recipe{{ rows|length|pluralize }}{% if missing %} · <a href="{% url 'data_menu' brand.code %}?show=no-recipe">{{ missing }} active menu item{{ missing|pluralize }} with no recipe</a>{% endif %}</span>
+  {% if can_edit %}<a class="btn" href="{% url 'data_recipe_new' brand.code %}">{% icon "plus" 15 %} New recipe</a>{% endif %}
+  <span class="muted count">{{ rows|length }} recipe{{ rows|length|pluralize }}{% if missing %} · <a href="{% url 'data_menu' brand.code %}?show=no-recipe">{{ missing }} active menu item{{ missing|pluralize }} with no recipe</a>{% endif %}</span>
 </form>
 {% if q %}<p class="muted">Recipes whose name or ingredients match "{{ q }}".</p>{% endif %}
 <div class="scroll"><table class="sortable">

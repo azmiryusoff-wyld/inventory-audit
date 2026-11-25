@@ -5,8 +5,8 @@
   <input type="search" name="q" value="{{ q }}" placeholder="Search SKU, name or POS name" aria-label="Search">
   <select name="show" aria-label="Show"><option value="">All</option><option value="no-recipe" {% if show == "no-recipe" %}selected{% endif %}>Active, no recipe</option><option value="inactive" {% if show == "inactive" %}selected{% endif %}>Inactive</option></select>
   <button class="secondary">Search</button>
-  {% if can_edit %}<a class="btn" href="{% url 'data_menu_new' brand.code %}">New menu item</a>{% endif %}
-  <span class="muted">{{ items|length }} item{{ items|length|pluralize }}</span>
+  {% if can_edit %}<a class="btn" href="{% url 'data_menu_new' brand.code %}">{% icon "plus" 15 %} New menu item</a>{% endif %}
+  <span class="muted count">{{ items|length }} item{{ items|length|pluralize }}</span>
 </form>
 <div class="scroll"><table class="sortable">
   <tr><th>SKU</th><th>POS name</th><th>Category</th><th class="n">Price (SST incl.)</th><th>Recipe</th><th class="n">Other POS names</th><th></th></tr>
