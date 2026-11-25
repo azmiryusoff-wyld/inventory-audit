@@ -1,20 +1,39 @@
 {% extends "audit/base.html" %}{% load audit_tags %}
 {% block content %}
 {% include "audit/_audit_head.html" %}
-<h2>POS sales ({{ sales|length }})</h2>
-<div class="scroll"><table><tr><th>POS name</th><th>Menu item</th><th class="n">Qty</th></tr>
-{% for s in sales %}<tr><td>{{ s.pos_name }}</td><td>{% if s.menu_item %}{{ s.menu_item.sku }}{% else %}<span class="pill REVIEW">not on menu</span>{% endif %}</td><td class="n">{{ s.qty|num:0 }}</td></tr>{% endfor %}
+<p class="muted">Everything uploaded for this month. To fix one wrong line, press Edit next to it, or add a missing line, instead of uploading the whole file again. Every change is recorded under History.{% if audit.locked %} This month is signed off, so lines can't be changed.{% endif %}</p>
+<div class="toolbar"><input type="search" placeholder="Search all lines (SKU, name, invoice...)" id="inputs-search" aria-label="Search all lines"></div>
+
+<h2 id="sale">POS sales ({{ sales|length }}){% if can_edit.sale %} <a class="btn secondary" href="{% url 'audit_line_new' audit.pk 'sale' %}">Add line</a>{% endif %}</h2>
+<div class="scroll"><table class="sortable searchable"><tr><th>POS name</th><th>Menu item</th><th class="n">Qty</th>{% if can_edit.sale %}<th></th>{% endif %}</tr>
+{% for s in sales %}<tr><td>{{ s.pos_name }}</td><td>{% if s.menu_item %}{{ s.menu_item.sku }}{% else %}<span class="pill REVIEW">not on menu</span>{% endif %}</td><td class="n">{{ s.qty|num:0 }}</td>{% if can_edit.sale %}<td><a href="{% url 'audit_line_edit' audit.pk 'sale' s.pk %}">Edit</a></td>{% endif %}</tr>
+{% empty %}<tr data-empty><td colspan="4" class="muted">No POS sales uploaded.</td></tr>{% endfor %}
 </table></div>
-<h2>Production, transfers, wastage ({{ production|length }})</h2>
-<div class="scroll"><table><tr><th>Type</th><th>SKU</th><th class="n">Qty</th><th>Unit</th><th>Customer / brand</th><th>Note</th></tr>
-{% for p in production %}<tr><td>{{ p.get_kind_display }}</td><td>{{ p.sku }}</td><td class="n">{{ p.qty|num }}</td><td>{{ p.unit }}</td><td>{{ p.customer }}</td><td>{{ p.note }}</td></tr>{% endfor %}
+
+<h2 id="production">Production, transfers, wastage ({{ production|length }}){% if can_edit.production %} <a class="btn secondary" href="{% url 'audit_line_new' audit.pk 'production' %}">Add line</a>{% endif %}</h2>
+<div class="scroll"><table class="sortable searchable"><tr><th>Type</th><th>SKU</th><th class="n">Qty</th><th>Unit</th><th>Customer / brand</th><th>Note</th>{% if can_edit.production %}<th></th>{% endif %}</tr>
+{% for p in production %}<tr><td>{{ p.get_kind_display }}</td><td>{{ p.sku }}</td><td class="n">{{ p.qty|num }}</td><td>{{ p.unit }}</td><td>{{ p.customer }}</td><td>{{ p.note }}</td>{% if can_edit.production %}<td><a href="{% url 'audit_line_edit' audit.pk 'production' p.pk %}">Edit</a></td>{% endif %}</tr>
+{% empty %}<tr data-empty><td colspan="7" class="muted">None. Add B2B production, transfers out or wastage here so they count in theoretical usage.</td></tr>{% endfor %}
 </table></div>
-<h2>Purchases ({{ purchases|length }})</h2>
-<div class="scroll"><table><tr><th>Date</th><th>Invoice</th><th>Source</th><th>SKU</th><th>Description</th><th class="n">Qty</th><th class="n">Value</th></tr>
-{% for p in purchases %}<tr><td>{{ p.invoice_date|default:"" }}</td><td>{{ p.invoice_number }}</td><td>{{ p.get_source_display }}</td><td>{{ p.sku }}{% if not p.item %} <span class="pill REVIEW">unknown</span>{% endif %}</td><td>{{ p.description }}</td><td class="n">{{ p.qty|num }}</td><td class="n">{{ p.value|money }}</td></tr>{% endfor %}
+
+<h2 id="purchase">Purchases ({{ purchases|length }}){% if can_edit.purchase %} <a class="btn secondary" href="{% url 'audit_line_new' audit.pk 'purchase' %}">Add line</a>{% endif %}</h2>
+<div class="scroll"><table class="sortable searchable"><tr><th>Date</th><th>Invoice</th><th>Source</th><th>Supplier</th><th>SKU</th><th>Description</th><th class="n">Qty</th><th class="n">Value</th>{% if can_edit.purchase %}<th></th>{% endif %}</tr>
+{% for p in purchases %}<tr><td data-v="{{ p.invoice_date|date:'Y-m-d' }}">{{ p.invoice_date|date:"d/m/Y"|default:"" }}</td><td>{{ p.invoice_number }}</td><td>{{ p.get_source_display }}</td><td>{{ p.supplier }}</td><td>{{ p.sku }}{% if not p.item %} <span class="pill REVIEW">unknown</span>{% endif %}</td><td>{{ p.description }}</td><td class="n">{{ p.qty|num }}</td><td class="n">{{ p.value|money }}</td>{% if can_edit.purchase %}<td><a href="{% url 'audit_line_edit' audit.pk 'purchase' p.pk %}">Edit</a></td>{% endif %}</tr>
+{% empty %}<tr data-empty><td colspan="9" class="muted">No purchases uploaded.</td></tr>{% endfor %}
 </table></div>
-<h2>Stock counts ({{ counts_rows|length }})</h2>
-<div class="scroll"><table><tr><th>Count</th><th>SKU</th><th>Description</th><th class="n">Value</th><th class="n">Qty (base units)</th></tr>
-{% for c in counts_rows %}<tr><td>{{ c.get_kind_display }}</td><td>{{ c.sku }}{% if not c.item %} <span class="pill REVIEW">unknown</span>{% endif %}</td><td>{{ c.description }}</td><td class="n">{{ c.value|money }}</td><td class="n">{{ c.qty_base|num:3 }} {{ c.item.base_uom }}</td></tr>{% endfor %}
+
+<h2 id="count">Stock counts ({{ counts_rows|length }}){% if can_edit.count %} <a class="btn secondary" href="{% url 'audit_line_new' audit.pk 'count' %}?count=closing">Add line</a>{% endif %}</h2>
+<div class="scroll"><table class="sortable searchable"><tr><th>Count</th><th>SKU</th><th>Description</th><th class="n">Value</th><th class="n">Qty (base units)</th>{% if can_edit.count %}<th></th>{% endif %}</tr>
+{% for c in counts_rows %}<tr><td>{{ c.get_kind_display }}</td><td>{{ c.sku }}{% if not c.item %} <span class="pill REVIEW">unknown</span>{% endif %}</td><td>{{ c.description }}</td><td class="n">{{ c.value|money }}</td><td class="n">{{ c.qty_base|num:3 }} {{ c.item.base_uom }}</td>{% if can_edit.count %}<td><a href="{% url 'audit_line_edit' audit.pk 'count' c.pk %}">Edit</a></td>{% endif %}</tr>
+{% empty %}<tr data-empty><td colspan="6" class="muted">No stock counts uploaded.</td></tr>{% endfor %}
 </table></div>
+<script>
+document.getElementById("inputs-search").addEventListener("input", function () {
+  var q = this.value.toLowerCase().trim();
+  document.querySelectorAll("table.searchable tr").forEach(function (r) {
+    if (r.querySelector("th") || r.hasAttribute("data-empty")) return;
+    r.style.display = !q || r.textContent.toLowerCase().indexOf(q) !== -1 ? "" : "none";
+  });
+});
+</script>
 {% endblock %}

@@ -73,6 +73,9 @@ AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
 ]
 
+# Locks a username for 15 minutes after 5 wrong passwords (audit/login_guard.py).
+AUTHENTICATION_BACKENDS = ["audit.login_guard.LockoutBackend"]
+
 LOGIN_URL = "/admin/login/"
 LOGIN_REDIRECT_URL = "/"
 
@@ -101,6 +104,9 @@ if not DEBUG:
     CSRF_COOKIE_SECURE = True
     SECURE_SSL_REDIRECT = os.environ.get("DJANGO_SECURE_SSL_REDIRECT", "1") == "1"
     SECURE_CONTENT_TYPE_NOSNIFF = True
+    # Tell browsers to use HTTPS only. Set DJANGO_HSTS_SECONDS=31536000 once HTTPS works on the host.
+    SECURE_HSTS_SECONDS = int(os.environ.get("DJANGO_HSTS_SECONDS", "0"))
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = SECURE_HSTS_SECONDS > 0
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 DATA_UPLOAD_MAX_NUMBER_FIELDS = 20000

@@ -1,0 +1,16 @@
+{% extends "audit/base.html" %}
+{% block content %}
+{% include "audit/data/_nav.html" %}
+<form method="get" class="toolbar">
+  <input type="search" name="q" value="{{ q }}" placeholder="Search SKU or name" aria-label="Search"> <button class="secondary">Search</button>
+  {% if can_edit %}<a class="btn" href="{% url 'data_sf_new' brand.code %}">New semi-finished item</a>{% endif %}
+</form>
+<div class="scroll"><table class="sortable">
+  <tr><th>SKU</th><th>Name</th><th>Unit</th><th>Recipe</th><th class="n">Used in recipes</th><th></th></tr>
+  {% for s in items %}
+  <tr><td>{{ s.sku }}</td><td>{{ s.name }}{% if not s.active %} <span class="pill INCOMPLETE">inactive</span>{% endif %}</td><td>{{ s.output_uom }}</td>
+      <td>{% if s.recipe %}<a href="{% url 'data_recipe_edit' brand.code s.recipe.pk %}">Recipe</a>{% elif can_edit %}<a href="{% url 'data_recipe_new' brand.code %}?sf={{ s.pk }}"><span class="pill REVIEW">add recipe</span></a>{% else %}<span class="pill REVIEW">none</span>{% endif %}</td>
+      <td class="n"><a href="{% url 'data_recipes' brand.code %}?q={{ s.sku|urlencode }}">{{ s.n_used }}</a></td><td>{% if can_edit %}<a href="{% url 'data_sf_edit' brand.code s.pk %}">Edit</a>{% endif %}</td></tr>
+  {% empty %}<tr data-empty><td colspan="6" class="muted">No semi-finished items.</td></tr>{% endfor %}
+</table></div>
+{% endblock %}

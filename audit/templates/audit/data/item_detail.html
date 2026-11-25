@@ -1,0 +1,22 @@
+{% extends "audit/base.html" %}{% load audit_tags %}
+{% block content %}
+{% include "audit/data/_nav.html" %}
+<h2>{{ item.sku }} {{ item.name }}</h2>
+<div class="grid">
+  <div class="card kpi"><div class="label">Category</div><div class="value">{{ item.category }}</div></div>
+  <div class="card kpi"><div class="label">Pack</div><div class="value">{{ item.pack_size|num:0 }} {{ item.base_uom }}</div><div class="muted">{{ item.pack_uom }}</div></div>
+  <div class="card kpi"><div class="label">Price per pack</div><div class="value">{{ item.purchase_price|money }}</div><div class="muted">{{ item.cost_per_base|num:4 }} per {{ item.base_uom|default:"base unit" }}</div></div>
+  <div class="card kpi"><div class="label">Yield</div><div class="value">{{ item.yield_pct|pct }}</div></div>
+</div>
+<p class="muted">Supplier: {{ item.supplier|default:"-" }} · Last synced from the central item master: {{ item.synced_at|date:"j M Y, H:i"|default:"never" }}</p>
+<h2>Used in ({{ used|length }})</h2>
+<div class="scroll"><table class="sortable">
+  <tr><th>Brand</th><th>Recipe</th><th class="n">Qty per batch</th><th>Through</th></tr>
+  {% for u in used %}
+  <tr><td>{{ u.recipe.brand.code }}</td><td><a href="{% url 'data_recipe_edit' u.recipe.brand.code u.recipe.pk %}">{{ u.recipe.parent }}</a></td><td class="n">{{ u.qty|num:3 }}</td>
+      <td>{% if u.via %}semi-finished {{ u.via }}{% else %}<span class="muted">directly</span>{% endif %}</td></tr>
+  {% empty %}<tr data-empty><td colspan="4" class="muted">No recipe uses this item.</td></tr>{% endfor %}
+</table></div>
+{% if subs %}<h2>Substitutions</h2>
+<ul>{% for s in subs %}<li><a href="{% url 'data_sub_edit' s.pk %}">{{ s }}</a> × {{ s.factor|num:3 }} ({{ s.brand|default:"every brand" }}){% if not s.active %} <span class="muted">off</span>{% endif %}</li>{% endfor %}</ul>{% endif %}
+{% endblock %}

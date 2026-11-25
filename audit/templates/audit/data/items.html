@@ -1,0 +1,23 @@
+{% extends "audit/base.html" %}{% load audit_tags %}
+{% block content %}
+{% include "audit/data/_nav.html" %}
+<p class="muted">From the central item master workbook{% if last_sync %}, last synced {{ last_sync|date:"j M Y, H:i" }}{% else %} (not synced yet){% endif %}. Change prices, pack sizes and categories in the workbook; they come in at the next sync. Open an item to see which recipes use it.</p>
+<form method="get" class="toolbar">
+  <input type="search" name="q" value="{{ q }}" placeholder="Search SKU, name or supplier" aria-label="Search">
+  <select name="category" aria-label="Category"><option value="">All categories</option>{% for c in categories %}<option {% if c == category %}selected{% endif %}>{{ c }}</option>{% endfor %}</select>
+  <button class="secondary">Search</button> <span class="muted">{{ page.paginator.count }} item{{ page.paginator.count|pluralize }}</span>
+</form>
+<div class="scroll"><table class="sortable">
+  <tr><th>SKU</th><th>Name</th><th>Category</th><th class="n">Pack</th><th class="n">Price / pack</th><th class="n">Cost / base unit</th><th class="n">Yield</th><th>Supplier</th><th>Synced</th></tr>
+  {% for i in page %}
+  <tr><td><a href="{% url 'data_item' i.sku %}">{{ i.sku }}</a></td><td>{{ i.name }}{% if not i.active %} <span class="pill INCOMPLETE">inactive</span>{% endif %}</td><td>{{ i.category }}</td>
+      <td class="n">{{ i.pack_size|num:0 }} {{ i.base_uom }}</td><td class="n">{{ i.purchase_price|money }}</td><td class="n">{{ i.cost_per_base|num:4 }}</td><td class="n">{{ i.yield_pct|pct }}</td><td>{{ i.supplier }}</td>
+      <td>{{ i.synced_at|date:"j M Y"|default:"-" }}</td></tr>
+  {% empty %}<tr data-empty><td colspan="9" class="muted">No items match.</td></tr>{% endfor %}
+</table></div>
+{% if page.has_other_pages %}<div class="pager">
+  {% if page.has_previous %}<a href="?{{ query }}{% if query %}&{% endif %}page={{ page.previous_page_number }}">← Previous</a>{% endif %}
+  <span class="muted">Page {{ page.number }} of {{ page.paginator.num_pages }}</span>
+  {% if page.has_next %}<a href="?{{ query }}{% if query %}&{% endif %}page={{ page.next_page_number }}">Next →</a>{% endif %}
+</div>{% endif %}
+{% endblock %}

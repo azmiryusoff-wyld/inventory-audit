@@ -1,7 +1,42 @@
-"""Master data screens. Django's admin gives search, filters and editing for free."""
+"""The admin: brands, outlets, users and access for the CEO. Day-to-day menus, recipes and lines are edited
+in the app's own screens (audit/data_views.py)."""
 from django.contrib import admin
+from django.contrib.auth.admin import UserAdmin
+from django.contrib.auth.models import User
 
 from . import models
+
+
+class UserAccessInline(admin.StackedInline):
+    model = models.UserAccess
+    can_delete = False
+    filter_horizontal = ["brands", "outlets"]
+    verbose_name_plural = "Brands and outlets this user can see (not needed for Chef, Procurement or superusers)"
+
+
+class AuditUserAdmin(UserAdmin):
+    inlines = [*UserAdmin.inlines, UserAccessInline]
+
+
+admin.site.unregister(User)
+admin.site.register(User, AuditUserAdmin)
+
+
+@admin.register(models.ChangeLog)
+class ChangeLogAdmin(admin.ModelAdmin):
+    list_display = ["at", "user", "action", "what", "object_repr", "audit"]
+    list_filter = ["action", "what"]
+    search_fields = ["object_repr", "note", "user__username"]
+    list_select_related = ["user", "audit__outlet__brand"]
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 @admin.register(models.Brand)
@@ -111,12 +146,6 @@ class LockedAuditInlineMixin:
         return not self._locked(obj) and super().has_delete_permission(request, obj)
 
 
-class SaleInline(LockedAuditInlineMixin, admin.TabularInline):
-    model = models.SaleLine
-    extra = 0
-    autocomplete_fields = ["menu_item"]
-
-
 class ProductionInline(LockedAuditInlineMixin, admin.TabularInline):
     model = models.ProductionLine
     extra = 1
@@ -132,7 +161,10 @@ class ProductionInline(LockedAuditInlineMixin, admin.TabularInline):
 class AuditPeriodAdmin(admin.ModelAdmin):
     list_display = ["outlet", "period", "locked", "locked_at", "locked_by", "created_at"]
     list_filter = ["outlet__brand", "outlet", "period", "locked"]
-    inlines = [ProductionInline, SaleInline]
+    list_select_related = ["outlet__brand", "locked_by"]
+    # Sales, purchase and stock lines are edited on the audit's "Uploaded data" tab in the app; listing
+    # thousands of them here made this page take 1,000+ queries.
+    inlines = [ProductionInline]
 
     def get_readonly_fields(self, request, obj=None):
         # Sign-off and unlock happen with the buttons on the audit's dashboard, which take the snapshot.

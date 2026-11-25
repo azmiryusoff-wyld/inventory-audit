@@ -1,4 +1,5 @@
 """Glue between the database and the pure engine."""
+import dataclasses
 from collections import Counter, defaultdict
 from dataclasses import asdict
 from decimal import Decimal
@@ -81,8 +82,14 @@ def brand_input(brand: Brand) -> engine.EngineInput:
     )
 
 
-def build_engine_input(audit: AuditPeriod) -> engine.EngineInput:
-    inp = brand_input(audit.brand)
+def build_engine_input(audit: AuditPeriod, masters: dict | None = None) -> engine.EngineInput:
+    """masters: an optional {brand id: brand_input} memo, so a list of audits loads master data once."""
+    if masters is None:
+        inp = brand_input(audit.brand)
+    else:
+        if audit.outlet.brand_id not in masters:
+            masters[audit.outlet.brand_id] = brand_input(audit.brand)
+        inp = dataclasses.replace(masters[audit.outlet.brand_id])
     demand: dict[str, float] = defaultdict(float)
     sold: dict[str, float] = defaultdict(float)
     for s in audit.sales.select_related("menu_item"):
@@ -147,11 +154,11 @@ def engine_input_from_json(data: dict) -> engine.EngineInput:
     )
 
 
-def run_audit(audit: AuditPeriod) -> engine.EngineResult:
+def run_audit(audit: AuditPeriod, masters: dict | None = None) -> engine.EngineResult:
     """A signed-off audit is worked out from its sign-off snapshot, an open one from today's data."""
     if audit.locked and audit.snapshot:
         return engine.run(engine_input_from_json(audit.snapshot["engine_input"]))
-    return engine.run(build_engine_input(audit))
+    return engine.run(build_engine_input(audit, masters))
 
 
 def input_counts(audit: AuditPeriod) -> dict[str, int]:
@@ -201,16 +208,66 @@ def variance_outside(dash: dict, tolerance: float) -> bool:
     return abs(dash["variance_fb_pct"]) > tolerance
 
 
-def audit_report(audit: AuditPeriod) -> tuple[engine.EngineResult, list[engine.Check], dict]:
+def audit_report(audit: AuditPeriod, masters: dict | None = None
+                 ) -> tuple[engine.EngineResult, list[engine.Check], dict]:
     """Result, upload checks and status for one audit, frozen if it is signed off."""
     if not audit.locked:
         rematch_sales(audit)
-    result = run_audit(audit)
+    result = run_audit(audit, masters)
     if audit.locked and audit.snapshot:
         issues = [engine.Check(**c) for c in audit.snapshot["input_issues"]]
     else:
         issues = input_issues(audit)
     return result, issues, audit_status(audit, result, issues)
+
+
+def store_summary(audit: AuditPeriod, dash: dict, status: dict) -> None:
+    """Keep an open audit's dashboard and status for Trends and the audit list (see ReportCache)."""
+    from .models import ReportCache
+    from .signals import flush_pending
+
+    if audit.locked:
+        return
+    flush_pending()
+    ReportCache.objects.update_or_create(audit=audit, defaults={"dashboard": _jsonable(dash), "status": status})
+
+
+def summary(audit: AuditPeriod, masters: dict | None = None) -> tuple[dict, dict]:
+    """(dashboard, status) for lists: from the sign-off snapshot, the stored copy, or worked out now."""
+    from .models import ReportCache
+    from .signals import flush_pending
+
+    if audit.locked and audit.snapshot and "dashboard" in audit.snapshot:
+        return audit.snapshot["dashboard"], audit.snapshot["status"]
+    flush_pending()
+    cached = ReportCache.objects.filter(audit=audit).first()
+    if cached is not None:
+        return cached.dashboard, cached.status
+    result, issues, status = audit_report(audit, masters)
+    dash = result.dashboard()
+    store_summary(audit, dash, status)
+    return _jsonable(dash), status
+
+
+def summaries(audits) -> dict[int, tuple[dict, dict]]:
+    """summary() for many audits, loading the stored copies in one query and master data once per brand."""
+    from .models import ReportCache
+    from .signals import flush_pending
+
+    flush_pending()
+    audits = list(audits)
+    stored = {c.audit_id: (c.dashboard, c.status)
+              for c in ReportCache.objects.filter(audit__in=[a.pk for a in audits if not a.locked])}
+    masters: dict = {}
+    out = {}
+    for a in audits:
+        if a.locked and a.snapshot and "dashboard" in a.snapshot:
+            out[a.pk] = (a.snapshot["dashboard"], a.snapshot["status"])
+        elif a.pk in stored:
+            out[a.pk] = stored[a.pk]
+        else:
+            out[a.pk] = summary(a, masters)
+    return out
 
 
 @transaction.atomic
@@ -314,6 +371,18 @@ def input_issues(audit: AuditPeriod) -> list[engine.Check]:
     ]
 
 
+def valid_period(period: str) -> bool:
+    import re
+
+    return bool(re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", period or ""))
+
+
+def months_back(period: str, n: int) -> str:
+    year, month = (int(x) for x in period.split("-"))
+    index = year * 12 + month - 1 - n
+    return f"{index // 12:04d}-{index % 12 + 1:02d}"
+
+
 def previous_period(period: str) -> str:
     year, month = (int(x) for x in period.split("-"))
     year, month = (year - 1, 12) if month == 1 else (year, month - 1)
@@ -368,6 +437,9 @@ def copy_previous_closing(audit: AuditPeriod) -> int | None:
     rows = list(prev.stock_counts.filter(kind="closing")) if prev else []
     if not rows:
         return None
+    from .signals import invalidate
+
+    invalidate(audit=audit)
     audit.stock_counts.filter(kind="opening").delete()
     StockCount.objects.bulk_create(
         StockCount(audit=audit, kind="opening", sku=c.sku, item=c.item, description=c.description, value=c.value)
@@ -393,7 +465,10 @@ def rematch_sales(audit: AuditPeriod) -> int:
     if fixed:
         from .models import SaleLine
 
+        from .signals import invalidate
+
         SaleLine.objects.bulk_update(fixed, ["menu_item"])
+        invalidate(audit=audit)
     return len(fixed)
 
 

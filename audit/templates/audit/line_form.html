@@ -1,0 +1,23 @@
+{% extends "audit/base.html" %}
+{% block content %}
+<p><a href="{{ back }}">← {{ audit }} · Uploaded data</a></p>
+<h1>{% if line.pk %}Edit{% else %}Add{% endif %} {{ label|lower }}</h1>
+<p class="muted">The change is recorded under History with the old and new values, and the month's reports update straight away.</p>
+<form method="post" class="card">{% csrf_token %}
+  {% if form.non_field_errors %}<div class="msg error">{{ form.non_field_errors|join:" " }}</div>{% endif %}
+  <div class="form-grid">
+  {% for field in form %}
+    <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+    <div>{{ field }}{% if field.help_text %}<div class="help">{{ field.help_text }}</div>{% endif %}{{ field.errors }}</div>
+  {% endfor %}
+  </div>
+  <p style="margin-top:14px"><button>Save</button> <a href="{{ back }}" style="margin-left:8px">Cancel</a></p>
+</form>
+{% if line.pk %}
+<form method="post" onsubmit="return confirm('Delete this line? It is recorded under History.')">{% csrf_token %}
+  <input type="hidden" name="action" value="delete"><button class="secondary">Delete this line</button>
+</form>
+{% endif %}
+{% if item_skus %}<datalist id="item-skus">{% for sku, name in item_skus %}<option value="{{ sku }}">{{ name }}</option>{% endfor %}</datalist>{% endif %}
+{% if brand_skus or item_skus %}<datalist id="component-skus">{% for sku, name in brand_skus %}<option value="{{ sku }}">{{ name }}</option>{% endfor %}{% for sku, name in item_skus %}<option value="{{ sku }}">{{ name }}</option>{% endfor %}</datalist>{% endif %}
+{% endblock %}

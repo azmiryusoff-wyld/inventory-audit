@@ -1,0 +1,13 @@
+{% extends "audit/base.html" %}
+{% block content %}
+{% include "audit/_audit_head.html" %}
+<p class="muted">Every upload, line fix, sign-off and unlock for this month, newest first. Changes to recipes and menus are under <a href="{% url 'data_changes' %}">Menus &amp; recipes › Change log</a>.</p>
+<div class="scroll"><table>
+  <tr><th>When</th><th>Who</th><th>What</th><th>Details</th></tr>
+  {% for e in entries %}
+  <tr><td style="white-space:nowrap">{{ e.at|date:"j M Y, H:i" }}</td><td>{{ e.user|default:"-" }}</td>
+      <td><strong>{{ e.action|capfirst }}</strong> {{ e.what|lower }}{% if e.object_repr %}: {{ e.object_repr }}{% endif %}</td>
+      <td>{{ e.summary }}{% if e.summary and e.note %} · {% endif %}{{ e.note }}</td></tr>
+  {% empty %}<tr><td colspan="4" class="muted">Nothing recorded yet. Uploads and changes made from now on appear here.</td></tr>{% endfor %}
+</table></div>
+{% endblock %}

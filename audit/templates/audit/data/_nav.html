@@ -1,0 +1,14 @@
+<h1>Menus &amp; recipes{% if brand %} · {{ brand.code }} {{ brand.name }}{% endif %}</h1>
+<div class="subnav">
+  <a href="{% url 'data_home' %}" class="{% if section == 'home' %}on{% endif %}">All brands</a>
+  {% if brand %}
+  <a href="{% url 'data_menu' brand.code %}" class="{% if section == 'menu' %}on{% endif %}">Menu items</a>
+  <a href="{% url 'data_recipes' brand.code %}" class="{% if section == 'recipes' %}on{% endif %}">Recipes</a>
+  <a href="{% url 'data_sf' brand.code %}" class="{% if section == 'sf' %}on{% endif %}">Semi-finished</a>
+  <a href="{% url 'menu_costing' brand.code %}">Menu costing</a>
+  {% endif %}
+  <a href="{% url 'data_items' %}" class="{% if section == 'items' %}on{% endif %}">Item master</a>
+  <a href="{% url 'data_subs' %}" class="{% if section == 'subs' %}on{% endif %}">Substitutions</a>
+  <a href="{% url 'data_changes' %}" class="{% if section == 'changes' %}on{% endif %}">Change log</a>
+  {% if brand and brands|length > 1 %}<span style="margin-left:auto"><select onchange="location.href=this.value" aria-label="Switch brand">{% for b in brands %}<option value="{% url 'data_'|add:section|default:'data_menu' b.code %}" {% if b == brand %}selected{% endif %}>{{ b.code }}</option>{% endfor %}</select></span>{% endif %}
+</div>

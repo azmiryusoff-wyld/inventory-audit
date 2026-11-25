@@ -1,0 +1,46 @@
+{% extends "audit/base.html" %}
+{% block content %}
+<h1>Help</h1>
+<div class="card">
+<h2 style="margin-top:0">The monthly routine</h2>
+<ol class="steps">
+  <li><strong>Start the month</strong> on <a href="{% url 'month_close' %}">Month close</a> (every outlet at once) or on <a href="{% url 'home' %}">Audits</a>. Opening stock is copied from last month's closing count. In an outlet's first month in the app, upload last month's closing count from the old workbook as opening stock.</li>
+  <li><strong>Chef:</strong> upload the POS item sales report. Link any POS names that aren't on the menu straight from the Data checks list. Add wastage or B2B production on Uploaded data.</li>
+  <li><strong>Procurement:</strong> upload the Xero supplier invoices (and inter-company invoices if any) and the closing stock count.</li>
+  <li><strong>Fix the data checks.</strong> Each says who fixes it and what it leaves out of the numbers. A single wrong line can be edited on Uploaded data.</li>
+  <li><strong>CEO:</strong> review and sign off. Signing off freezes the month; unlocking it lets it follow today's recipes and prices again.</li>
+</ol>
+</div>
+<div class="card">
+<h2 style="margin-top:0">Words used in the app</h2>
+<dl>
+  <dt><strong>COGS</strong></dt><dd>Cost of goods sold: what the ingredients and packaging used in the month cost.</dd>
+  <dt><strong>Theoretical COGS</strong></dt><dd>What it should have cost, from the recipes of everything sold, produced, transferred or wasted.</dd>
+  <dt><strong>Actual COGS</strong></dt><dd>What it did cost: opening stock + purchases − closing stock.</dd>
+  <dt><strong>Variance</strong></dt><dd>Actual minus theoretical. Positive means more was used than the recipes say (waste, over-portioning, theft, a missing count). Negative means less (often a missing purchase or a count error).</dd>
+  <dt><strong>Tolerance</strong></dt><dd>How far the F&amp;B variance may be from theoretical, either way, before the audit shows "Outside tolerance". Usually 2%.</dd>
+  <dt><strong>Yield</strong></dt><dd>The usable share of an item after trimming or cooking loss. 80% yield means 1 kg bought gives 800 g usable, so the recipe's net quantity is divided by 0.8.</dd>
+  <dt><strong>Semi-finished item</strong></dt><dd>Something made in-house from other items, such as a sauce, syrup or dough, with its own recipe.</dd>
+  <dt><strong>Substitution</strong></dt><dd>A one-way swap of an item in every recipe, for example when a supplier's product changes.</dd>
+  <dt><strong>Base unit</strong></dt><dd>The unit recipes use for an item (g, ml, pcs). A pack holds a number of base units.</dd>
+  <dt><strong>SST</strong></dt><dd>Sales and service tax. Sales, the dashboard and menu engineering use POS prices with SST included; Menu costing takes SST out to compare cost with the net price.</dd>
+  <dt><strong>Menu engineering classes</strong></dt><dd>
+    <span class="pill STAR">STAR</span> popular and high margin ·
+    <span class="pill PLOWHORSE">PLOWHORSE</span> popular, low margin ·
+    <span class="pill PUZZLE">PUZZLE</span> high margin, not popular ·
+    <span class="pill DOG">DOG</span> neither ·
+    <span class="pill NORECIPE">NO RECIPE</span> sold but has no recipe, so its cost is unknown.</dd>
+  <dt><strong>Sign off</strong></dt><dd>Freezes the month: its numbers stay as they were even if recipes or prices change later, and files can't be uploaded.</dd>
+</dl>
+</div>
+<div class="card">
+<h2 style="margin-top:0">Who does what</h2>
+<ul>
+  <li><strong>Chef:</strong> menus, recipes, semi-finished items, substitutions, POS sales, linking POS names, wastage.</li>
+  <li><strong>Procurement:</strong> purchases and stock counts. Can see menus and recipes but not change them.</li>
+  <li><strong>CEO:</strong> everything, plus sign-off, brands, outlets, users and who sees which outlet (Admin).</li>
+  <li><strong>Outlet manager:</strong> sees only the brands or outlets ticked for them.</li>
+</ul>
+<p class="muted">Item prices, pack sizes and categories come from the central item master workbook, so change them there.</p>
+</div>
+{% endblock %}

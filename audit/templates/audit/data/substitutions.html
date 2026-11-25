@@ -1,0 +1,15 @@
+{% extends "audit/base.html" %}{% load audit_tags %}
+{% block content %}
+{% include "audit/data/_nav.html" %}
+<p class="muted">A substitution swaps one item for another in every recipe (for one brand, or every brand). A brand's own mapping wins over an every-brand one.</p>
+{% if can_edit %}<p><a class="btn" href="{% url 'data_sub_new' %}">New substitution</a></p>{% endif %}
+<div class="scroll"><table class="sortable">
+  <tr><th>Swap</th><th>For</th><th class="n">Factor</th><th>Applies to</th><th>Status</th><th>Note</th><th></th></tr>
+  {% for r in rows %}{% with s=r.sub %}
+  <tr><td><a href="{% url 'data_item' s.original.sku %}">{{ s.original.sku }}</a> {{ s.original.name }}</td><td><a href="{% url 'data_item' s.substitute.sku %}">{{ s.substitute.sku }}</a> {{ s.substitute.name }}</td>
+      <td class="n">{{ s.factor|num:3 }}</td><td>{{ s.brand|default:"Every brand" }}</td>
+      <td>{% if not s.active %}<span class="pill INCOMPLETE">Off</span>{% elif r.status == "ACTIVE" %}<span class="pill PASS">Active</span>{% else %}<span class="pill REVIEW" title="{{ r.status }}">{{ r.status|cut:"ERROR - " }}</span>{% endif %}</td>
+      <td>{{ s.note }}</td><td>{% if can_edit %}<a href="{% url 'data_sub_edit' s.pk %}">Edit</a>{% endif %}</td></tr>
+  {% endwith %}{% empty %}<tr data-empty><td colspan="7" class="muted">No substitutions.</td></tr>{% endfor %}
+</table></div>
+{% endblock %}

@@ -589,9 +589,12 @@ def _lock_open_audit(audit):
     """Lock the audit row until the upload commits, so two uploads of the same file can't interleave."""
     from .models import AuditPeriod
 
+    from .signals import invalidate
+
     locked = AuditPeriod.objects.select_for_update().get(pk=audit.pk)
     if locked.locked:
         raise ValueError("This audit is signed off and locked. Nothing was changed.")
+    invalidate(audit=locked)  # bulk_create sends no signals, so the stored dashboard is cleared here
     return locked
 
 
