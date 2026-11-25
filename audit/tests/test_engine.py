@@ -202,4 +202,6 @@ class LeakageShareTests(SimpleTestCase):
         dash = e.run(inp).dashboard()
         shares = {r["sku"]: r["share"] for r in dash["top_leakage"]}
         self.assertAlmostEqual(shares["COFFEE"], 30 / 31)
-        self.assertTrue(shares["MILK"] < 0)
+        # Under-use is a gain, listed apart, not a negative share of leakage.
+        self.assertNotIn("MILK", shares)
+        self.assertEqual([g["sku"] for g in dash["top_gains"]], ["MILK"])

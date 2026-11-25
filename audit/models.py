@@ -286,7 +286,7 @@ class ProductionLine(models.Model):
     menu_item = models.ForeignKey(MenuItem, null=True, blank=True, on_delete=models.PROTECT)
     semi_finished = models.ForeignKey(SemiFinished, null=True, blank=True, on_delete=models.PROTECT)
     item = models.ForeignKey(Item, null=True, blank=True, on_delete=models.PROTECT)
-    qty = quantity()
+    qty = quantity(help_text="For an item: its base unit (g, ml, pcs, see Unit). For a menu or semi-finished item: portions.")
     customer = models.CharField(max_length=200, blank=True, help_text="Customer / brand")
     note = models.CharField(max_length=300, blank=True)
 
@@ -298,6 +298,14 @@ class ProductionLine(models.Model):
     def sku(self):
         obj = self.menu_item or self.semi_finished or self.item
         return obj.sku if obj else ""
+
+    @property
+    def unit(self):
+        if self.item:
+            return self.item.base_uom or "base unit"
+        if self.semi_finished:
+            return self.semi_finished.output_uom or "portion"
+        return "portion" if self.menu_item else ""
 
 
 class PurchaseLine(models.Model):

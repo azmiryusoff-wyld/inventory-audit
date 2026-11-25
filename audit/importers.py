@@ -234,7 +234,7 @@ def _wrong_file(rows: list[list], allowed: set[str] = frozenset()) -> None:
                 raise ValueError(f"This looks like {what}.")
 
 
-def read_pos_sales(file, location: str = "") -> list[dict]:
+def read_pos_sales(file, location: str = "", info: dict | None = None) -> list[dict]:
     """POS item sales export -> [{'pos_name', 'qty'}], summed by name.
 
     Handles the three shapes seen so far:
@@ -307,6 +307,8 @@ def read_pos_sales(file, location: str = "") -> list[dict]:
                     f"This report covers several outlets ({names}). Set the outlet's POS location "
                     "under Master data > Outlets to one of these names."
                 )
+            if info is not None:
+                info["column"] = clean(rows[start][qty_col])
             item_col = cols.get("item", 0)
             for i, r in enumerate(rows[start + 1:], start=start + 2):
                 if len(r) > max(item_col, qty_col):
@@ -375,14 +377,17 @@ def read_xero_invoices(file) -> list[dict]:
 
 
 def read_stock_count(file) -> list[dict]:
-    """Outlet stock count form -> [{'sku', 'description', 'value'}].
+    """Outlet stock count form -> [{'sku', 'description', 'value', 'packs'}].
 
-    A counted line needs a value (0 if nothing is left); a blank or negative value stops the upload.
-    Lines with a value but no SKU come back with sku "" so the loader can report them.
+    A counted line needs a value (0 if nothing is left), or a 'Counted Qty (packs)' with the value
+    left blank, in which case the loader values it at the item master's price per pack. A blank or
+    negative count stops the upload. Lines with a value but no SKU come back with sku "" so the
+    loader can report them.
     """
     rows = read_rows(file)
     _wrong_file(rows, allowed={"total rm value"})
     start, cols = find_header(rows, ["SKU", "Total RM Value"])
+    qty_col = next((name for name in cols if name.startswith("counted qty")), None)
     out, errors = [], []
     for i, r in enumerate(rows[start + 1:], start=start + 2):
         sku = clean(cell(r, cols, "SKU"))
@@ -394,16 +399,22 @@ def read_stock_count(file) -> list[dict]:
         except ValueError as exc:
             errors.append(f"Row {i}: Total RM Value {exc} ({label})")
             continue
+        try:
+            packs = parse_number(cell(r, cols, qty_col)) if qty_col else None
+        except ValueError as exc:
+            errors.append(f"Row {i}: Counted Qty {exc} ({label})")
+            continue
         if not sku:
             if value:
-                out.append({"sku": "", "description": description, "value": value})
+                out.append({"sku": "", "description": description, "value": value, "packs": None})
             continue
-        if value is None:
+        if value is None and packs is None:
             errors.append(f"Row {i}: Total RM Value is blank ({label}). Enter 0 if none is left")
-        elif value < 0:
-            errors.append(f"Row {i}: Total RM Value can't be negative ({label}: {raw})")
+        elif (value is not None and value < 0) or (packs is not None and packs < 0):
+            errors.append(f"Row {i}: a stock count can't be negative ({label})")
         else:
-            out.append({"sku": sku, "description": description, "value": value})
+            out.append({"sku": sku, "description": description, "value": value,
+                        "packs": packs if value is None else None})
     if errors:
         raise RowErrors(errors)
     return out
@@ -473,6 +484,8 @@ class ImportReport:
     updated: int = 0
     skipped: int = 0
     warnings: list[str] = field(default_factory=list)
+    valued_from_packs: int = 0
+    note: str = ""  # e.g. which POS report column was read
 
     def __str__(self):
         text = f"{self.created} created, {self.updated} updated, {self.skipped} skipped"
@@ -556,6 +569,22 @@ def _menu_lookup(brand):
     return lookup
 
 
+def _item_lookup():
+    """Items by SKU, matched ignoring case and spacing ("demo-cup " finds DEMO-CUP)."""
+    from .models import Item
+
+    items = list(Item.objects.all())
+    return {norm(i.sku): i for i in items}, [i.sku for i in items]
+
+
+def _unknown_sku(sku, description, skus) -> str:
+    import difflib
+
+    close = difflib.get_close_matches(sku.upper(), skus, n=1, cutoff=0.75)
+    hint = f", did you mean {close[0]}?" if close else ""
+    return f"Unknown SKU {sku} ({description}){hint}"
+
+
 def _lock_open_audit(audit):
     """Lock the audit row until the upload commits, so two uploads of the same file can't interleave."""
     from .models import AuditPeriod
@@ -578,10 +607,13 @@ def _money(d) -> str:
 def load_pos_sales(audit, file, replace=True) -> ImportReport:
     from .models import SaleLine
 
-    rows = read_pos_sales(file, location=audit.outlet.pos_location)
+    info: dict = {}
+    rows = read_pos_sales(file, location=audit.outlet.pos_location, info=info)
     if not rows:
         raise _no_lines("sales lines")
     report = ImportReport()
+    if info.get("column"):
+        report.note = f"Quantities read from the column '{info['column']}'"
     with transaction.atomic():
         audit = _lock_open_audit(audit)
         if replace:
@@ -603,7 +635,7 @@ def load_pos_sales(audit, file, replace=True) -> ImportReport:
 def load_purchases(audit, file, source="supplier", replace=True) -> ImportReport:
     from collections import Counter
 
-    from .models import Item, PurchaseLine
+    from .models import PurchaseLine
 
     rows = read_xero_invoices(file)
     report = ImportReport()
@@ -644,12 +676,14 @@ def load_purchases(audit, file, source="supplier", replace=True) -> ImportReport
         audit = _lock_open_audit(audit)
         if replace:
             audit.purchases.filter(source=source).delete()
-        items = {i.sku: i for i in Item.objects.all()}
+        items, skus = _item_lookup()
         lines = []
         for row in keep:
-            item = items.get(row["sku"])
+            item = items.get(norm(row["sku"]))
+            if item is not None:
+                row = {**row, "sku": item.sku}
             lines.append(PurchaseLine(audit=audit, source=source, item=item, **row))
-            msg = f"Unknown SKU {row['sku']} ({row['description']})"
+            msg = _unknown_sku(row["sku"], row["description"], skus)
             if item is None and msg not in report.warnings:
                 report.warnings.append(msg)
         PurchaseLine.objects.bulk_create(lines)
@@ -660,7 +694,7 @@ def load_purchases(audit, file, source="supplier", replace=True) -> ImportReport
 def load_stock_count(audit, file, kind, replace=True) -> ImportReport:
     from collections import Counter
 
-    from .models import Item, StockCount
+    from .models import StockCount
 
     rows = read_stock_count(file)
     report = ImportReport()
@@ -681,12 +715,24 @@ def load_stock_count(audit, file, kind, replace=True) -> ImportReport:
         audit = _lock_open_audit(audit)
         if replace:
             audit.stock_counts.filter(kind=kind).delete()
-        items = {i.sku: i for i in Item.objects.all()}
+        items, skus = _item_lookup()
         lines = []
         for row in keep:
-            item = items.get(row["sku"])
+            row = dict(row)
+            packs = row.pop("packs", None)
+            item = items.get(norm(row["sku"]))
+            if item is not None:
+                row["sku"] = item.sku
+            if row["value"] is None:  # counted in packs: value it at the item master's price per pack
+                if item is None or not item.purchase_price:
+                    row["value"] = Decimal("0")
+                    report.warnings.append(f"{row['sku']}: counted {packs} packs but there is no price to value "
+                                           "them, so it counts as 0. Enter the RM value instead")
+                else:
+                    row["value"] = (packs * item.purchase_price).quantize(Decimal("0.01"))
+                    report.valued_from_packs += 1
             lines.append(StockCount(audit=audit, kind=kind, item=item, **row))
-            msg = f"Unknown SKU {row['sku']} ({row['description']})"
+            msg = _unknown_sku(row["sku"], row["description"], skus)
             if item is None and msg not in report.warnings:
                 report.warnings.append(msg)
         StockCount.objects.bulk_create(lines)

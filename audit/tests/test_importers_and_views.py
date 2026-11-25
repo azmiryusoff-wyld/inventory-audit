@@ -153,7 +153,8 @@ class FlowTests(TestCase):
 
         resp = self.client.get(reverse("audit_export", args=[self.audit.pk]))
         wb = openpyxl.load_workbook(BytesIO(resp.content))
-        self.assertEqual(wb.sheetnames, ["Dashboard", "Variance", "Menu engineering", "Consumption", "Checks"])
+        self.assertEqual(wb.sheetnames, ["Dashboard", "Variance", "Top leakage", "Menu engineering", "Consumption",
+                                         "Checks", "Purchases", "Stock counts"])
 
         self.assertEqual(self.client.get(reverse("trends")).status_code, 200)
         self.assertEqual(self.client.get(reverse("menu_costing", args=["EOC"])).status_code, 200)
@@ -210,8 +211,8 @@ class FlowTests(TestCase):
             "pos": "Latte - Hot,2",
             "purchases": "INV1,2026-10-01,Supplier,COFFEE,Beans,1,100",
             "interco": "INV2,2026-10-02,Sister Co,MILK,Milk,2,8",
-            "opening": "COFFEE,Beans,RM10.00",
-            "closing": "COFFEE,Beans,RM5.00",
+            "opening": "COFFEE,Beans,,RM10.00",
+            "closing": "COFFEE,Beans,,RM5.00",
         }
         for kind, row in sample.items():
             resp = self.client.get(reverse("upload_template", args=[kind]))

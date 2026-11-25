@@ -32,3 +32,11 @@ def num(value, places=2):
     except (TypeError, ValueError):
         return "-"
     return f"{v:,.{places}f}"
+
+
+@register.filter
+def neg(value):
+    try:
+        return -float(value)
+    except (TypeError, ValueError):
+        return value

@@ -58,8 +58,17 @@ class MenuItemAdmin(admin.ModelAdmin):
 
 class RecipeLineInline(admin.TabularInline):
     model = models.RecipeLine
-    extra = 1
+    extra = 3
     autocomplete_fields = ["item", "semi_finished"]
+    readonly_fields = ["unit"]
+
+    @admin.display(description="Unit")
+    def unit(self, obj):
+        if obj and obj.item_id:
+            return obj.item.base_uom or "-"
+        if obj and obj.semi_finished_id:
+            return obj.semi_finished.output_uom or "-"
+        return "shown after saving"
 
 
 @admin.register(models.Recipe)
@@ -112,6 +121,11 @@ class ProductionInline(LockedAuditInlineMixin, admin.TabularInline):
     model = models.ProductionLine
     extra = 1
     autocomplete_fields = ["menu_item", "semi_finished", "item"]
+    readonly_fields = ["unit"]
+
+    @admin.display(description="Unit")
+    def unit(self, obj):
+        return (obj.unit if obj and obj.pk else "") or "shown after saving"
 
 
 @admin.register(models.AuditPeriod)

@@ -88,7 +88,7 @@ class UploadSafetyTests(Base):
         text = " ".join(self.messages(resp))
         self.assertIn("Row 2: Total RM Value 'abc' is not a number", text)
         self.assertIn("Row 3: Total RM Value is blank", text)
-        self.assertIn("Row 4: Total RM Value can't be negative", text)
+        self.assertIn("Row 4: a stock count can't be negative", text)
         self.assertEqual(self.audit.stock_counts.count(), 0)
 
         resp = self.post("pos", "pos.csv", "Full Name,Quantity\nLatte - Hot,ten\n")
@@ -182,10 +182,10 @@ class StatusTests(Base):
         self.assertEqual(status_row[1], "Review")
 
     def test_tolerance_must_be_a_sensible_fraction(self):
-        resp = self.client.post(reverse("home"), {"outlet": self.outlet.pk, "period": "2026-11",
-                                                  "variance_tolerance": "2"})
-        self.assertFalse(AuditPeriod.objects.filter(period="2026-11").exists())
-        self.assertContains(resp, "less than or equal to 0.5")
+        resp = self.client.post(reverse("home"), {"outlet": self.outlet.pk, "period": "2026-09",
+                                                  "tolerance_pct": "200"})
+        self.assertFalse(AuditPeriod.objects.filter(period="2026-09").exists())
+        self.assertContains(resp, "less than or equal to 50")
 
 
 class SignOffTests(Base):

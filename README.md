@@ -73,6 +73,23 @@ Every screen, Trends and the Excel export show the same status:
 | Outside tolerance | F&B variance is outside the audit's tolerance, over or under |
 | Pass | Complete, every check passes, variance within tolerance |
 
+### The monthly routine, in the app
+
+* **Start:** pick the outlet and month (defaults to last month) and the variance tolerance in %.
+  Opening stock is filled in from last month's closing count when there is one; the opening row
+  also has a "Copy last month's closing count" button, and a data check flags any SKU whose opening
+  differs from last month's closing.
+* **Stock counts** can be entered as money (Total RM Value) or as packs counted (Counted Qty
+  (packs), RM value left blank): packs are valued at the item master's price per pack.
+* **Data checks** say who fixes each one (Chef, Procurement or HQ for the central item master) and
+  what it leaves out of the numbers, e.g. "RM 390.00 not counted in actual COGS". The chef can link
+  a POS name that isn't on the menu to a menu item right there (it is saved as a POS alias);
+  procurement can't. A new menu item or alias is picked up straight away, with no re-upload.
+* **SKUs** on invoices and counts match the item master ignoring case and spacing, and an unknown
+  SKU gets a "did you mean" suggestion.
+* **SST:** audit dashboards, menu engineering and Trends use menu prices with SST included, as
+  the POS does; brand menu costing uses prices without SST, as the workbook does. Each screen says so.
+
 ### Upload checks
 
 A file that can't be read, has no lines, or belongs in another upload row changes nothing. A number
