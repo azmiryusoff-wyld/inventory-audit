@@ -8,6 +8,9 @@ import sys
 def main():
     """Run administrative tasks."""
     os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
+    # Local commands (runserver, test, load_demo) run with DEBUG on unless told otherwise.
+    # The hosted app starts through gunicorn and wsgi.py, where DEBUG stays off by default.
+    os.environ.setdefault("DJANGO_DEBUG", "1")
     try:
         from django.core.management import execute_from_command_line
     except ImportError as exc:

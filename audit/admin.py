@@ -86,13 +86,29 @@ class SubstitutionAdmin(admin.ModelAdmin):
         return obj.brand or "All brands"
 
 
-class SaleInline(admin.TabularInline):
+class LockedAuditInlineMixin:
+    """Lines of a signed-off audit are read-only for everyone."""
+
+    def _locked(self, obj):
+        return bool(obj and obj.locked)
+
+    def has_add_permission(self, request, obj=None):
+        return not self._locked(obj) and super().has_add_permission(request, obj)
+
+    def has_change_permission(self, request, obj=None):
+        return not self._locked(obj) and super().has_change_permission(request, obj)
+
+    def has_delete_permission(self, request, obj=None):
+        return not self._locked(obj) and super().has_delete_permission(request, obj)
+
+
+class SaleInline(LockedAuditInlineMixin, admin.TabularInline):
     model = models.SaleLine
     extra = 0
     autocomplete_fields = ["menu_item"]
 
 
-class ProductionInline(admin.TabularInline):
+class ProductionInline(LockedAuditInlineMixin, admin.TabularInline):
     model = models.ProductionLine
     extra = 1
     autocomplete_fields = ["menu_item", "semi_finished", "item"]
@@ -100,6 +116,24 @@ class ProductionInline(admin.TabularInline):
 
 @admin.register(models.AuditPeriod)
 class AuditPeriodAdmin(admin.ModelAdmin):
-    list_display = ["outlet", "period", "locked", "created_at"]
+    list_display = ["outlet", "period", "locked", "locked_at", "locked_by", "created_at"]
     list_filter = ["outlet__brand", "outlet", "period", "locked"]
     inlines = [ProductionInline, SaleInline]
+
+    def get_readonly_fields(self, request, obj=None):
+        # Sign-off and unlock happen with the buttons on the audit's dashboard, which take the snapshot.
+        fields = ["locked", "locked_at", "locked_by"]
+        if obj and obj.locked:
+            fields += ["outlet", "period", "variance_tolerance"]
+        return fields
+
+    def has_delete_permission(self, request, obj=None):
+        if obj is not None and obj.locked:
+            return False
+        return super().has_delete_permission(request, obj)
+
+    def get_actions(self, request):
+        # Bulk delete would skip the signed-off check, so it is removed.
+        actions = super().get_actions(request)
+        actions.pop("delete_selected", None)
+        return actions

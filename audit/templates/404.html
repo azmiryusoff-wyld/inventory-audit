@@ -1,0 +1,7 @@
+{% extends "audit/base.html" %}
+{% block title %}Page not found · Inventory Audit{% endblock %}
+{% block content %}
+<h1>Page not found</h1>
+<p>This page doesn't exist, or the audit was removed.</p>
+<p><a class="btn" href="{% url 'home' %}">Back to audits</a></p>
+{% endblock %}

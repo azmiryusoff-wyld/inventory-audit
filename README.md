@@ -46,12 +46,41 @@ Differences from the sheet, on purpose:
 
 | User | Access |
 |---|---|
-| Group CEO | Superuser: everything |
-| Chef | Menus, recipes, semi-finished items, substitutions, audits, sales; read-only items and purchases |
-| Procurement | Audits, purchases, stock counts, sales; read-only menus and recipes |
+| Group CEO | Superuser: everything, including signing off and unlocking months |
+| Chef | Menus, recipes, semi-finished items, substitutions, audits, POS sales uploads; read-only items, purchases and stock counts |
+| Procurement | Audits, purchase and stock count uploads, POS sales uploads; read-only menus and recipes |
 
 Run `python manage.py setup_roles` once, then in **Master data › Users** create each person,
-tick *Staff status*, and add them to the Chef or Procurement group.
+tick *Staff status*, and add them to the Chef or Procurement group. To let someone other than the
+CEO sign off months, give them the permission *Can sign off and unlock audits*.
+
+### Signing off a month
+
+**Sign off this month** on an audit's dashboard freezes it: the recipes, prices, menu and quantities
+are saved with the audit, so later recipe edits, price syncs or menu changes don't change a closed
+month. Uploads and line edits stop, and the audit can't be deleted. **Unlock** reopens it, and its
+numbers then follow today's master data again. A menu item that has been sold, or an item that has
+been bought or counted, can't be deleted; set it inactive instead.
+
+### Status
+
+Every screen, Trends and the Excel export show the same status:
+
+| Status | Meaning |
+|---|---|
+| Incomplete | POS sales, supplier purchases, opening or closing stock count is missing |
+| Review | A data check failed; fix the data before trusting the variance |
+| Outside tolerance | F&B variance is outside the audit's tolerance, over or under |
+| Pass | Complete, every check passes, variance within tolerance |
+
+### Upload checks
+
+A file that can't be read, has no lines, or belongs in another upload row changes nothing. A number
+or date that can't be read stops the upload and names the row. Invoice lines with no item code,
+duplicate invoice lines, invoices dated outside the month and negative lines are reported after the
+upload; duplicates and out-of-month invoices also show under Data checks. Item master categories
+other than Food & Beverage, Packaging, LPG, Cleaning & Chemical and Other are listed by the sync
+and flagged in each audit, and shown as their own row instead of disappearing from the totals.
 
 ## Run it on a laptop
 
@@ -65,6 +94,9 @@ python manage.py createsuperuser
 python manage.py load_demo        # optional: a made-up café to click around in
 python manage.py runserver
 ```
+
+`manage.py` runs with `DJANGO_DEBUG=1` on a laptop. The hosted app (gunicorn) runs with DEBUG off
+unless `DJANGO_DEBUG=1` is set, and needs `DJANGO_SECRET_KEY`.
 
 Open http://127.0.0.1:8000. Master data (items, menus, recipes, users) is under **Master data**.
 
@@ -138,6 +170,9 @@ Any host that runs Python works (Railway, Render, Fly.io, a company VM). Set:
 | `DJANGO_CSRF_TRUSTED_ORIGINS` | `https://audit.example.com` |
 
 Start command: `python manage.py migrate && python manage.py collectstatic --noinput && gunicorn config.wsgi`.
+Static files (the Master data screens' styles) are served by WhiteNoise, so no separate static host is needed.
+With DEBUG off, cookies are HTTPS-only and plain HTTP is redirected to HTTPS; if the host's health check
+uses plain HTTP and fails, set `DJANGO_SECURE_SSL_REDIRECT=0`.
 
 ## Code map
 
@@ -149,5 +184,5 @@ audit/models.py        tables
 audit/admin.py         master data screens
 audit/views.py         dashboard, reports, uploads, Excel export
 audit/management/      sync_item_master, import_workbook, setup_roles, load_demo
-audit/tests/           engine, importer and end-to-end tests
+audit/tests/           engine, importer, end-to-end, sign-off, upload-check and permission tests
 ```

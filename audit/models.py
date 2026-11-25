@@ -9,7 +9,8 @@ Per audit:   AuditPeriod (one outlet, one month) with its sales, production,
 from decimal import Decimal
 
 from django.core.exceptions import ValidationError
-from django.core.validators import MinValueValidator, RegexValidator
+from django.conf import settings
+from django.core.validators import MaxValueValidator, MinValueValidator, RegexValidator
 from django.db import models
 
 DEFAULT_CATEGORIES = ["Food & Beverage", "Packaging", "LPG", "Cleaning & Chemical", "Other"]
@@ -232,16 +233,33 @@ class AuditPeriod(models.Model):
     period = models.CharField(
         max_length=7, validators=[RegexValidator(r"^\d{4}-(0[1-9]|1[0-2])$", "Use YYYY-MM")]
     )
-    variance_tolerance = models.DecimalField(max_digits=5, decimal_places=4, default=Decimal("0.02"))
+    variance_tolerance = models.DecimalField(
+        max_digits=5, decimal_places=4, default=Decimal("0.02"),
+        validators=[MinValueValidator(Decimal("0")), MaxValueValidator(Decimal("0.5"))],
+        help_text="Allowed F&B variance as a fraction of theoretical: 0.02 = 2%. Between 0 and 0.5.",
+    )
     locked = models.BooleanField(default=False, help_text="Signed off: inputs can no longer change")
+    locked_at = models.DateTimeField(null=True, blank=True)
+    locked_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    # Frozen at sign-off: the recipes, prices and quantities the month was signed off with, so later
+    # master data changes (a recipe edit, a price sync, a renamed category) don't restate a closed month.
+    snapshot = models.JSONField(null=True, blank=True, editable=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ["-period", "outlet__brand__code", "outlet__code"]
         unique_together = [("outlet", "period")]
+        permissions = [("sign_off_auditperiod", "Can sign off and unlock audits")]
 
     def __str__(self):
         return f"{self.outlet} {self.period}"
+
+    def delete(self, *args, **kwargs):
+        if self.locked:
+            raise ValueError(f"{self} is signed off. Unlock it before deleting.")
+        return super().delete(*args, **kwargs)
 
     @property
     def brand(self):
@@ -253,7 +271,9 @@ class SaleLine(models.Model):
 
     audit = models.ForeignKey(AuditPeriod, on_delete=models.CASCADE, related_name="sales")
     pos_name = models.CharField(max_length=300)
-    menu_item = models.ForeignKey(MenuItem, null=True, blank=True, on_delete=models.SET_NULL)
+    # PROTECT: a menu item that has been sold can't be deleted (that would rewrite past audits);
+    # set it inactive instead.
+    menu_item = models.ForeignKey(MenuItem, null=True, blank=True, on_delete=models.PROTECT)
     qty = quantity()
 
 
@@ -287,7 +307,7 @@ class PurchaseLine(models.Model):
     audit = models.ForeignKey(AuditPeriod, on_delete=models.CASCADE, related_name="purchases")
     source = models.CharField(max_length=20, choices=SOURCE_CHOICES, default="supplier")
     sku = models.CharField(max_length=40)
-    item = models.ForeignKey(Item, null=True, blank=True, on_delete=models.SET_NULL)
+    item = models.ForeignKey(Item, null=True, blank=True, on_delete=models.PROTECT)
     description = models.CharField(max_length=300, blank=True)
     qty = quantity()
     value = money()
@@ -303,7 +323,7 @@ class StockCount(models.Model):
     audit = models.ForeignKey(AuditPeriod, on_delete=models.CASCADE, related_name="stock_counts")
     kind = models.CharField(max_length=10, choices=KIND_CHOICES)
     sku = models.CharField(max_length=40)
-    item = models.ForeignKey(Item, null=True, blank=True, on_delete=models.SET_NULL)
+    item = models.ForeignKey(Item, null=True, blank=True, on_delete=models.PROTECT)
     description = models.CharField(max_length=300, blank=True)
     value = money()
 

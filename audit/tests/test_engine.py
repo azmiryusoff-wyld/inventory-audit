@@ -155,7 +155,7 @@ class CheckTests(SimpleTestCase):
                             demand={"X": 1, "COOKIE": 4}, sold={"X": 1, "COOKIE": 4}))
         counts = {c.key: c.count for c in result.checks}
         self.assertEqual(counts, {"unmapped": 1, "qty": 1, "no_cost": 1, "yield": 1,
-                                  "no_recipe": 1, "depth": 0, "subs": 0})
+                                  "no_recipe": 1, "depth": 0, "subs": 0, "category": 0})
         self.assertEqual(result.status, "REVIEW")
         self.assertEqual(e.run(make()).status, "PASS")
 
