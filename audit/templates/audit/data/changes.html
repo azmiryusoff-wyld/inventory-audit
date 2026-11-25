@@ -1,0 +1,20 @@
+{% extends "audit/base.html" %}
+{% block content %}
+{% include "audit/data/_nav.html" %}
+<p class="muted">Every change to menus, recipes, semi-finished items and substitutions, and every upload and line fix, newest first.</p>
+<form method="get" class="toolbar"><input type="search" name="q" value="{{ q }}" placeholder="Search item, user or type" aria-label="Search"> <button class="secondary">Search</button></form>
+<div class="scroll"><table>
+  <tr><th>When</th><th>Who</th><th>What</th><th>Audit</th><th>Details</th></tr>
+  {% for e in page %}
+  <tr><td style="white-space:nowrap">{{ e.at|date:"j M Y, H:i" }}</td><td>{{ e.user|default:"-" }}</td>
+      <td><strong>{{ e.action|capfirst }}</strong> {{ e.what|lower }}{% if e.object_repr %}: {{ e.object_repr }}{% endif %}</td>
+      <td>{% if e.audit %}<a href="{% url 'audit_history' e.audit.pk %}">{{ e.audit }}</a>{% endif %}</td>
+      <td>{{ e.summary }}{% if e.summary and e.note %} · {% endif %}{{ e.note }}</td></tr>
+  {% empty %}<tr><td colspan="5" class="muted">Nothing recorded yet.</td></tr>{% endfor %}
+</table></div>
+{% if page.has_other_pages %}<div class="pager">
+  {% if page.has_previous %}<a href="?q={{ q|urlencode }}&page={{ page.previous_page_number }}">← Newer</a>{% endif %}
+  <span class="muted">Page {{ page.number }} of {{ page.paginator.num_pages }}</span>
+  {% if page.has_next %}<a href="?q={{ q|urlencode }}&page={{ page.next_page_number }}">Older →</a>{% endif %}
+</div>{% endif %}
+{% endblock %}

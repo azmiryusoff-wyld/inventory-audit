@@ -21,5 +21,6 @@
   <a href="{% url 'audit_menu' audit.pk %}" class="{% if tab == 'menu' %}on{% endif %}">Menu engineering</a>
   <a href="{% url 'audit_consumption' audit.pk %}" class="{% if tab == 'consumption' %}on{% endif %}">Consumption</a>
   <a href="{% url 'audit_inputs' audit.pk %}" class="{% if tab == 'inputs' %}on{% endif %}">Uploaded data</a>
+  <a href="{% url 'audit_history' audit.pk %}" class="{% if tab == 'history' %}on{% endif %}">History</a>
   <a href="{% url 'audit_export' audit.pk %}" style="margin-left:auto">Download Excel</a>
 </div>

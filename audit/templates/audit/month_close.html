@@ -1,0 +1,30 @@
+{% extends "audit/base.html" %}{% load audit_tags %}
+{% block content %}
+<h1>Month close · {{ period }}</h1>
+<p class="muted">Every outlet and every file for one month. A number is the lines loaded; a dash is a file still to upload ({{ required.values|join:", " }} are needed; inter-company is optional).</p>
+<form method="get" class="toolbar">
+  <label>Month <input type="month" name="month" value="{{ period }}"></label>
+  <select name="brand" aria-label="Brand"><option value="">All brands</option>{% for b in brands %}<option value="{{ b.code }}" {% if brand == b.code %}selected{% endif %}>{{ b.code }}</option>{% endfor %}</select>
+  <button class="secondary">Show</button>
+  <span class="muted">{{ done }} of {{ rows|length }} signed off{% if missing %} · {{ missing }} not started{% endif %}</span>
+</form>
+{% if missing and can_start %}
+<form method="post" class="inline" style="margin-bottom:12px">{% csrf_token %}<input type="hidden" name="month" value="{{ period }}">
+  <button>Start the {{ missing }} missing audit{{ missing|pluralize }} for {{ period }}</button>
+  <span class="muted">2% tolerance; opening stock copied from last month's closing where there is one.</span>
+</form>
+{% endif %}
+<div class="scroll"><table class="sortable">
+  <tr><th>Brand</th><th>Outlet</th><th class="n">POS sales</th><th class="n">Supplier purchases</th><th class="n">Inter-company</th><th class="n">Opening stock</th><th class="n">Closing stock</th><th>Status</th><th>Sign-off</th></tr>
+  {% for r in rows %}
+  <tr><td>{{ r.outlet.brand.code }}</td><td>{% if r.audit %}<a href="{% url 'audit_detail' r.audit.pk %}">{{ r.outlet.name }}</a>{% else %}{{ r.outlet.name }}{% endif %}</td>
+    {% if r.audit %}
+      {% for kind, n in r.files %}<td class="n {% if n %}ok{% elif kind != 'interco' %}missing{% endif %}" title="{% if n %}{{ n }} lines{% else %}Not uploaded{% endif %}">{% if n %}✓ {{ n }}{% else %}–{% endif %}</td>{% endfor %}
+      <td><span class="pill {{ r.status.code }}" title="{{ r.status.reasons|join:'; ' }}">{{ r.status.label }}</span></td>
+      <td>{% if r.audit.locked %}<span class="pill LOCKED">Signed off</span>{% else %}<span class="muted">Not yet</span>{% endif %}</td>
+    {% else %}
+      <td colspan="7" class="muted">Not started</td>
+    {% endif %}</tr>
+  {% empty %}<tr data-empty><td colspan="9" class="muted">No outlets you can see.</td></tr>{% endfor %}
+</table></div>
+{% endblock %}

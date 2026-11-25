@@ -49,8 +49,13 @@ Differences from the sheet, on purpose:
 | Group CEO | Superuser: everything, including signing off and unlocking months |
 | Chef | Menus, recipes, semi-finished items, substitutions, audits, POS sales uploads; read-only items, purchases and stock counts |
 | Procurement | Audits, purchase and stock count uploads, POS sales uploads; read-only menus and recipes |
+| Outlet manager | Read-only, and only the brands or outlets ticked for them |
 
-Run `python manage.py setup_roles` once, then in **Master data › Users** create each person,
+Chef, Procurement and superusers see every brand and outlet. Anyone else sees only the brands and
+outlets ticked under **Admin › Users › (the user) › Brands and outlets this user can see**; with
+nothing ticked they see no audits. After 5 wrong passwords a username is locked for 15 minutes.
+
+Run `python manage.py setup_roles` once, then in **Admin › Users** create each person,
 tick *Staff status*, and add them to the Chef or Procurement group. To let someone other than the
 CEO sign off months, give them the permission *Can sign off and unlock audits*.
 
@@ -87,6 +92,19 @@ Every screen, Trends and the Excel export show the same status:
   procurement can't. A new menu item or alias is picked up straight away, with no re-upload.
 * **SKUs** on invoices and counts match the item master ignoring case and spacing, and an unknown
   SKU gets a "did you mean" suggestion.
+* **Month close** shows every outlet × every file for a month, and starts all missing audits at once.
+* **One wrong line** (a purchase, a stock count, a POS line) is fixed with Edit on the audit's
+  Uploaded data tab, or a missing one added, without re-uploading the file. Wastage, transfers and B2B
+  production are added there too. Every upload, line change, sign-off and unlock is on the audit's
+  History tab, with old and new values; menu and recipe changes are under Menus & recipes › Change log.
+* **Menus & recipes** has its own screens for menu items (with other POS names), recipes (with the cost
+  per portion and each line's cost), semi-finished items and substitutions. A recipe always takes its
+  brand from its menu item; negative prices, zero or negative quantities, and chained or doubled
+  substitutions are refused. Each item master item shows which recipes use it, directly or through a
+  semi-finished item, and when it was last synced.
+* **Reports:** tables sort by clicking a heading; Variance has search, a category filter, totals and the
+  variance in the item's own unit; Trends filters by brand, outlet and months (last 12 by default).
+  Menu items sold with no recipe are classed NO RECIPE and kept out of the category averages.
 * **SST:** audit dashboards, menu engineering and Trends use menu prices with SST included, as
   the POS does; brand menu costing uses prices without SST, as the workbook does. Each screen says so.
 
@@ -115,7 +133,7 @@ python manage.py runserver
 `manage.py` runs with `DJANGO_DEBUG=1` on a laptop. The hosted app (gunicorn) runs with DEBUG off
 unless `DJANGO_DEBUG=1` is set, and needs `DJANGO_SECRET_KEY`.
 
-Open http://127.0.0.1:8000. Master data (items, menus, recipes, users) is under **Master data**.
+Open http://127.0.0.1:8000. Menus, recipes, semi-finished items, substitutions and the item master are under **Menus & recipes**; brands, outlets, users and who sees which outlet are under **Admin** (superusers only).
 
 Tests: `python manage.py test audit`
 
@@ -134,7 +152,7 @@ The central item master stays the source of truth; the app reads from it.
 
 Items no longer in the workbook are marked inactive, never deleted. The workbook's
 `15 Substitutions` tab is loaded too and applies to every brand; a substitution added to one
-brand under Master data overrides it for that brand. Duplicate SKUs keep the first row and are listed.
+brand under Menus & recipes › Substitutions overrides it for that brand. Duplicate SKUs keep the first row and are listed.
 
 ### Each brand's menu, recipes and semi-finished items (one-off)
 
@@ -146,13 +164,13 @@ python manage.py import_workbook EOC "EOC MASTER - COGS & Inventory Audit.xlsx" 
 
 It reads `21 SF Master`, `23 Menu Master`, `22 Recipe Master` and `15 Substitutions`, and lists
 any recipe lines whose parent or component it couldn't match. Then add the brand's outlets under
-**Master data › Outlets**.
+**Admin › Outlets**.
 
 ### Brands and outlets
 
 `outlets.csv` lists every brand and outlet. Run `python manage.py setup_outlets` to create them
 (safe to re-run). To add a brand or outlet later, add a line to the file and run it again, or add
-it under **Master data › Outlets**. The `pos_location` column is the outlet's name in the POS
+it under **Admin › Outlets**. The `pos_location` column is the outlet's name in the POS
 report headings; fill in the blanks when you have them.
 
 ### Outlets and POS reports
@@ -171,7 +189,7 @@ Use the report that matches how the brand's menu is set up. EOC's menu is per va
 which has the Full Name; the multi-outlet report only says "Americano". Chonky's menu has no
 variants, so its multi-outlet report works.
 
-Adding a brand or outlet later needs no code change: add it under Master data and import the
+Adding a brand or outlet later needs no code change: add it under Admin and import the
 brand's recipes once.
 
 ## Deploying
@@ -187,9 +205,13 @@ Any host that runs Python works (Railway, Render, Fly.io, a company VM). Set:
 | `DJANGO_CSRF_TRUSTED_ORIGINS` | `https://audit.example.com` |
 
 Start command: `python manage.py migrate && python manage.py collectstatic --noinput && gunicorn config.wsgi`.
-Static files (the Master data screens' styles) are served by WhiteNoise, so no separate static host is needed.
+Static files (the Admin screens' styles) are served by WhiteNoise, so no separate static host is needed.
 With DEBUG off, cookies are HTTPS-only and plain HTTP is redirected to HTTPS; if the host's health check
-uses plain HTTP and fails, set `DJANGO_SECURE_SSL_REDIRECT=0`.
+uses plain HTTP and fails, set `DJANGO_SECURE_SSL_REDIRECT=0`. Once HTTPS works, set
+`DJANGO_HSTS_SECONDS=31536000` so browsers always use HTTPS.
+
+Trends and the audit list keep each open audit's dashboard (table `ReportCache`) and work it out again
+only after its lines or any master data change, so the first visit after a change takes a few seconds.
 
 ## Code map
 
@@ -198,8 +220,13 @@ audit/engine.py        the calculations (pure Python)
 audit/services.py      database -> engine, menu costing, upload checks
 audit/importers.py     readers for POS, Xero, stock count, item master and workbook files
 audit/models.py        tables
-audit/admin.py         master data screens
-audit/views.py         dashboard, reports, uploads, Excel export
+audit/admin.py         admin: brands, outlets, users and access
+audit/views.py         dashboard, reports, uploads, line fixes, month close, Excel export
+audit/data_views.py    menus, recipes, semi-finished, substitutions, item master, change log
+audit/access.py        who sees which brands and outlets
+audit/history.py       change log helpers
+audit/signals.py       clears stored dashboards when data changes
+audit/login_guard.py   login lockout
 audit/management/      sync_item_master, import_workbook, setup_roles, load_demo
 audit/tests/           engine, importer, end-to-end, sign-off, upload-check and permission tests
 ```

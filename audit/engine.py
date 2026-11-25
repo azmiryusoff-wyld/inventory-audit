@@ -32,7 +32,9 @@ DEFAULT_CATEGORIES = [
     "Other",
 ]
 
-MENU_CLASS_ORDER = {"STAR": 1, "PLOWHORSE": 2, "PUZZLE": 3, "DOG": 4}
+# "NO RECIPE": sold but has no recipe, so its cost is unknown (shown as 0). It is kept out of the
+# category averages and thresholds, which it would otherwise distort, and never classed STAR.
+MENU_CLASS_ORDER = {"STAR": 1, "PLOWHORSE": 2, "PUZZLE": 3, "DOG": 4, "NO RECIPE": 5}
 
 
 # --------------------------------------------------------------------------
@@ -292,6 +294,8 @@ class VarianceRow:
     opening: float
     purchases: float
     closing: float
+    cost_per_base: float = 0.0
+    base_uom: str = ""
 
     @property
     def actual_cost(self) -> float:
@@ -306,6 +310,11 @@ class VarianceRow:
         if not self.theoretical_cost:
             return None
         return self.variance / self.theoretical_cost
+
+    @property
+    def variance_qty(self) -> float | None:
+        """The variance in the item's base unit (g, ml, pcs), at today's cost per unit."""
+        return self.variance / self.cost_per_base if self.cost_per_base else None
 
 
 @dataclass
@@ -322,6 +331,7 @@ class MenuRow:
     mix_share: float = 0.0  # share of units within its category, 0..1
     popularity_threshold: float = 0.0
     menu_class: str = ""
+    has_recipe: bool = True
 
     @property
     def margin(self) -> float:
@@ -448,6 +458,8 @@ class EngineResult:
         out = []
         for cls in MENU_CLASS_ORDER:
             rows = [r for r in self.menu if r.menu_class == cls]
+            if cls == "NO RECIPE" and not rows:
+                continue
             sales = sum(r.total_sales for r in rows)
             out.append(
                 {
@@ -503,6 +515,8 @@ def _variance(inp: EngineInput, consumption: list[ConsumptionRow]) -> list[Varia
             opening=inp.opening_value.get(sku, 0.0),
             purchases=inp.purchases_value.get(sku, 0.0),
             closing=inp.closing_value.get(sku, 0.0),
+            cost_per_base=item.cost_per_base,
+            base_uom=item.base_uom,
         )
         if row.theoretical_cost or row.opening or row.purchases or row.closing:
             rows.append(row)
@@ -519,13 +533,17 @@ def _menu_engineering(inp: EngineInput, unit_cost: dict[str, float]) -> list[Men
             price=m.price,
             cost=unit_cost.get(sku, 0.0),
             units=inp.sold.get(sku, 0.0),
+            has_recipe=sku in inp.recipes,
         )
         for sku, m in inp.menu.items()
         if inp.sold.get(sku, 0.0) > 0
     ]
     by_cat: dict[str, list[MenuRow]] = defaultdict(list)
     for r in rows:
-        by_cat[r.category].append(r)
+        if r.has_recipe:
+            by_cat[r.category].append(r)
+        else:
+            r.menu_class = "NO RECIPE"
     for cat_rows in by_cat.values():
         units = sum(r.units for r in cat_rows)
         contribution = sum(r.total_contribution for r in cat_rows)

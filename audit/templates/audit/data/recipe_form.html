@@ -1,0 +1,55 @@
+{% extends "audit/base.html" %}{% load audit_tags %}
+{% block content %}
+{% include "audit/data/_nav.html" %}
+<p><a href="{% url 'data_recipes' brand.code %}">← Recipes</a></p>
+<h2>{% if recipe.pk %}{{ recipe }}{% else %}New recipe{% endif %}</h2>
+{% if recipe.pk %}<div class="grid">
+  <div class="card kpi"><div class="label">Cost per unit, with yield</div><div class="value">{% if portion is not None %}{{ currency }} {{ portion|num:4 }}{% else %}-{% endif %}</div><div class="muted">at today's item master prices</div></div>
+</div>{% endif %}
+<form method="post" class="card">{% csrf_token %}
+  {% if form.non_field_errors %}<div class="msg error">{{ form.non_field_errors|join:" " }}</div>{% endif %}
+  <div class="form-grid">
+  {% for field in form %}
+    <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+    <div>{{ field }}{% if field.help_text %}<div class="help">{{ field.help_text }}</div>{% endif %}{{ field.errors }}</div>
+  {% endfor %}
+  </div>
+  <h2>Ingredients</h2>
+  <p class="muted">An item master SKU (quantity in its base unit: g, ml, pcs) or a semi-finished SKU of {{ brand.code }}. Start typing to pick. Clear both boxes of a line to remove it.</p>
+  {{ lines.management_form }}
+  {% if lines.non_form_errors %}<div class="msg error">{{ lines.non_form_errors|join:" " }}</div>{% endif %}
+  <div class="scroll"><table id="lines">
+    <tr><th>SKU</th><th>Quantity per batch</th></tr>
+    {% for f in lines %}<tr><td>{{ f.component }}{{ f.component.errors }}{{ f.non_field_errors }}</td><td>{{ f.qty }}{{ f.qty.errors }}</td></tr>{% endfor %}
+  </table></div>
+  {% if can_edit %}<p><button type="button" class="secondary" id="add-line">Add another line</button></p>
+  <p style="margin-top:14px"><button>Save recipe</button></p>{% endif %}
+</form>
+{% if rows %}
+<h2>Saved ingredients</h2>
+<div class="scroll"><table>
+  <tr><th>SKU</th><th>Name</th><th class="n">Qty per batch</th><th>Unit</th><th class="n">Cost per unit</th><th class="n">Line cost</th></tr>
+  {% for r in rows %}<tr><td>{% if r.line.item %}<a href="{% url 'data_item' r.line.item.sku %}">{{ r.line.component_sku }}</a>{% else %}{{ r.line.component_sku }}{% endif %}</td><td>{{ r.name }}</td><td class="n">{{ r.line.qty_per_batch|num:3 }}</td><td>{{ r.unit }}</td>
+    <td class="n">{% if r.cost is not None %}{{ r.cost|num:4 }}{% else %}-{% endif %}</td><td class="n">{% if r.total is not None %}{{ r.total|num:2 }}{% else %}-{% endif %}</td></tr>{% endfor %}
+</table></div>
+{% endif %}
+{% if recipe.pk and perms.audit.delete_recipe %}
+<form method="post" action="{% url 'data_recipe_delete' brand.code recipe.pk %}" style="margin-top:14px" onsubmit="return confirm('Delete this recipe? The menu item will then cost nothing until it has a recipe again.')">{% csrf_token %}
+  <button class="secondary">Delete recipe</button></form>
+{% endif %}
+<datalist id="component-skus">{% for sku, name in components %}<option value="{{ sku }}">{{ name }}</option>{% endfor %}</datalist>
+<script>
+(function () {
+  var btn = document.getElementById("add-line"); if (!btn) return;
+  btn.addEventListener("click", function () {
+    var total = document.getElementById("id_lines-TOTAL_FORMS"), n = parseInt(total.value, 10);
+    var rows = document.querySelectorAll("#lines tr"), last = rows[rows.length - 1], copy = last.cloneNode(true);
+    copy.querySelectorAll("input").forEach(function (i) {
+      i.name = i.name.replace(/lines-\d+-/, "lines-" + n + "-"); i.id = i.id.replace(/lines-\d+-/, "lines-" + n + "-"); i.value = "";
+    });
+    copy.querySelectorAll(".errorlist").forEach(function (e) { e.remove(); });
+    last.parentNode.appendChild(copy); total.value = n + 1;
+  });
+})();
+</script>
+{% endblock %}

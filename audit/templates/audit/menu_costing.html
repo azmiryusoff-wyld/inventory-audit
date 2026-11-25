@@ -8,7 +8,7 @@
   <tr><td>{{ r.menu.sku }}</td><td>{{ r.menu.name }}</td><td>{{ r.menu.category }}</td><td class="n">{{ r.menu.price|money }}</td>
       <td class="n">{% if r.has_recipe %}{{ r.cost|money }}{% else %}<span class="pill REVIEW">no recipe</span>{% endif %}</td>
       <td class="n">{{ r.cogs_pct|pct }}</td><td class="n">{{ r.cost_with_yield|money }}</td></tr>
-  {% empty %}<tr><td colspan="7" class="muted">{{ brand.code }} has no menu items yet. HQ imports the brand's workbook once (README, "Each brand's menu, recipes and semi-finished items"), or add them under Master data › Menu items.</td></tr>
+  {% empty %}<tr><td colspan="7" class="muted">{{ brand.code }} has no menu items yet. HQ imports the brand's workbook once (README, "Each brand's menu, recipes and semi-finished items"), or add them under <a href="{% url 'data_menu' brand.code %}">Menus &amp; recipes › Menu items</a>.</td></tr>
   {% endfor %}
 </table></div>
 {% endblock %}

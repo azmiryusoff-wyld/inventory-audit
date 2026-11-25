@@ -1,0 +1,19 @@
+{% extends "audit/base.html" %}{% load audit_tags %}
+{% block content %}
+{% include "audit/data/_nav.html" %}
+<form method="get" class="toolbar">
+  <input type="search" name="q" value="{{ q }}" placeholder="Search SKU, name or POS name" aria-label="Search">
+  <select name="show" aria-label="Show"><option value="">All</option><option value="no-recipe" {% if show == "no-recipe" %}selected{% endif %}>Active, no recipe</option><option value="inactive" {% if show == "inactive" %}selected{% endif %}>Inactive</option></select>
+  <button class="secondary">Search</button>
+  {% if can_edit %}<a class="btn" href="{% url 'data_menu_new' brand.code %}">New menu item</a>{% endif %}
+  <span class="muted">{{ items|length }} item{{ items|length|pluralize }}</span>
+</form>
+<div class="scroll"><table class="sortable">
+  <tr><th>SKU</th><th>POS name</th><th>Category</th><th class="n">Price (SST incl.)</th><th>Recipe</th><th class="n">Other POS names</th><th></th></tr>
+  {% for m in items %}
+  <tr><td>{{ m.sku }}</td><td>{{ m.name }}{% if not m.active %} <span class="pill INCOMPLETE">inactive</span>{% endif %}</td><td>{{ m.category }}</td><td class="n">{{ m.price|money }}</td>
+      <td>{% if m.recipe %}<a href="{% url 'data_recipe_edit' brand.code m.recipe.pk %}">Recipe</a>{% elif can_edit %}<a href="{% url 'data_recipe_new' brand.code %}?menu={{ m.pk }}"><span class="pill REVIEW">add recipe</span></a>{% else %}<span class="pill REVIEW">none</span>{% endif %}</td>
+      <td class="n">{{ m.n_alias|default:"" }}</td><td>{% if can_edit %}<a href="{% url 'data_menu_edit' brand.code m.pk %}">Edit</a>{% endif %}</td></tr>
+  {% empty %}<tr data-empty><td colspan="7" class="muted">No menu items{% if q or show %} match{% else %} yet. Import the brand's workbook or add them here{% endif %}.</td></tr>{% endfor %}
+</table></div>
+{% endblock %}

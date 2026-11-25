@@ -1,0 +1,13 @@
+{% extends "audit/base.html" %}
+{% block content %}
+{% include "audit/data/_nav.html" %}
+<p class="muted">Menus, recipes and semi-finished items are kept per brand. The item master is shared by every brand and comes from the central workbook.</p>
+<div class="scroll"><table>
+  <tr><th>Brand</th><th class="n">Menu items</th><th class="n">Recipes</th><th></th></tr>
+  {% for b in brand_rows %}
+  <tr><td><strong>{{ b.code }}</strong> {{ b.name }}</td><td class="n">{{ b.n_menu }}</td><td class="n">{{ b.n_recipes }}</td>
+      <td><a href="{% url 'data_menu' b.code %}">Menu items</a> · <a href="{% url 'data_recipes' b.code %}">Recipes</a> · <a href="{% url 'data_sf' b.code %}">Semi-finished</a> · <a href="{% url 'menu_costing' b.code %}">Menu costing</a></td></tr>
+  {% empty %}<tr><td colspan="4" class="muted">No brands you can see.</td></tr>{% endfor %}
+</table></div>
+<p><a href="{% url 'data_items' %}">Item master</a>: {{ n_items }} items{% if last_sync %}, last synced {{ last_sync|date:"j M Y, H:i" }}{% else %}, not synced yet{% endif %}. · <a href="{% url 'data_subs' %}">Substitutions</a>: {{ n_subs }}.</p>
+{% endblock %}
