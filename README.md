@@ -175,4 +175,3 @@ The variance looks far too high. First clear every data check. Then check that t
 A menu item shows NO RECIPE. It sold but has no recipe, so its cost counts as zero. The chef adds the recipe.
 Where do item prices come from? From the central item master workbook. Change them there, not in the app.
 Who changed this? The audit's History tab lists uploads, line edits, sign-offs and unlocks. Menus & recipes › Change log lists menu, recipe and substitution changes.
-<img width="468" height="641" alt="image" src="https://github.com/user-attachments/assets/c31a4518-2596-4cfe-b12f-945d9bacd177" />
