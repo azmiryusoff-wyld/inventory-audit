@@ -412,7 +412,6 @@ class EngineResult:
         # gives meaningless signs when other items are under-used.
         leakage = sum(r.variance for r in fb_rows if r.variance > 0)
         return {
-            "status": self.status,
             "total_sales": sales,
             "theoretical_fb": theo_fb,
             "theoretical_all": self.theoretical(),
@@ -542,6 +541,7 @@ def _checks(
     consumption: list[ConsumptionRow],
     explosion: Explosion,
     sub_status: list[tuple[Substitution, str]],
+    variance: list[VarianceRow] = (),
 ) -> list[Check]:
     known = set(inp.items) | set(inp.recipes) | inp.semi_finished
     unmapped, bad_qty = [], []
@@ -558,6 +558,11 @@ def _checks(
         if qty > 0 and sku in inp.menu and sku not in inp.recipes
     ]
     depth = sorted(explosion.too_deep) + [" -> ".join(c) for c in sorted(explosion.cycles)]
+    # An item whose category isn't one of the report's categories would fall out of every COGS total.
+    # It is shown as its own row in "COGS by category", and flagged here so it gets fixed at the source.
+    odd_category = sorted(
+        f"{r.sku} ({r.category or 'blank'})" for r in variance if r.category not in inp.categories
+    )
     return [
         Check("unmapped", "Unmapped recipe components", len(unmapped),
               "Fix the component so it matches an item or semi-finished SKU.", unmapped),
@@ -579,6 +584,10 @@ def _checks(
               sum(st.startswith("ERROR") for _, st in sub_status),
               "Each original SKU must map to one valid substitute; no reverse or chain mappings.",
               [f"{s.original_sku} -> {s.substitute_sku}: {st}" for s, st in sub_status if st != "ACTIVE"]),
+        Check("category", "Items with an unknown category", len(odd_category),
+              "Set the item's category in the central item master to one of: "
+              + ", ".join(inp.categories) + ". Until then it is not counted in Food & Beverage.",
+              odd_category),
     ]
 
 
@@ -595,10 +604,12 @@ def run(inp: EngineInput) -> EngineResult:
         consumption=consumption,
         variance=variance,
         menu=menu,
-        checks=_checks(inp, consumption, explosion, sub_status),
+        checks=_checks(inp, consumption, explosion, sub_status, variance),
         unit_cost=costs,
         net=explosion.net,
         substitution_status=sub_status,
-        categories=inp.categories,
+        categories=list(inp.categories) + sorted(
+            {r.category for r in variance if r.category not in inp.categories}
+        ),
         total_sales=total_sales,
     )

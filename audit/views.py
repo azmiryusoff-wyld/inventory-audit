@@ -3,6 +3,7 @@ from io import BytesIO
 from django import forms
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required, permission_required
+from django.core.exceptions import PermissionDenied
 from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
@@ -21,6 +22,17 @@ class NewAuditForm(forms.ModelForm):
         super().__init__(*a, **kw)
         self.fields["outlet"].queryset = Outlet.objects.filter(active=True).select_related("brand")
 
+
+MAX_UPLOAD_BYTES = 20 * 1024 * 1024
+
+# The permission each upload needs: the chef loads POS sales; purchases and stock counts are procurement's.
+UPLOAD_PERMISSIONS = {
+    "pos": "audit.change_saleline",
+    "purchases": "audit.change_purchaseline",
+    "interco": "audit.change_purchaseline",
+    "opening": "audit.change_stockcount",
+    "closing": "audit.change_stockcount",
+}
 
 UPLOADS = {
     "pos": ("POS item sales report", "Item Sales Report Summary export from the POS"),
@@ -57,32 +69,27 @@ def home(request):
     return render(request, "audit/home.html", {"audits": audits, "form": form, "brands": Brand.objects.all()})
 
 
-def _context(audit, tab):
-    result = services.run_audit(audit)
-    checks = result.checks + services.input_issues(audit)
+def _context(audit, tab, user):
+    result, issues, status = services.audit_report(audit)
+    counts = services.input_counts(audit)
     return {
         "audit": audit,
         "tab": tab,
         "result": result,
         "dash": result.dashboard(),
-        "checks": checks,
-        "status": "PASS" if all(c.passed for c in checks) else "REVIEW",
+        "checks": result.checks + issues,
+        "status": status,
         "currency": audit.brand.currency,
-        "uploads": UPLOADS,
-        "counts": {
-            "pos": audit.sales.count(),
-            "purchases": audit.purchases.filter(source="supplier").count(),
-            "interco": audit.purchases.filter(source="interco").count(),
-            "opening": audit.stock_counts.filter(kind="opening").count(),
-            "closing": audit.stock_counts.filter(kind="closing").count(),
-        },
+        "uploads": {k: (*v, user.has_perm(UPLOAD_PERMISSIONS[k])) for k, v in UPLOADS.items()},
+        "counts": counts,
+        "can_sign_off": user.has_perm("audit.sign_off_auditperiod"),
     }
 
 
 @login_required
 def audit_detail(request, pk, tab="overview"):
     audit = get_object_or_404(AuditPeriod.objects.select_related("outlet__brand"), pk=pk)
-    ctx = _context(audit, tab)
+    ctx = _context(audit, tab, request.user)
     if tab == "inputs":
         ctx["sales"] = audit.sales.select_related("menu_item").order_by("pos_name")
         ctx["purchases"] = audit.purchases.order_by("invoice_date", "invoice_number")
@@ -93,14 +100,21 @@ def audit_detail(request, pk, tab="overview"):
 
 @require_POST
 @login_required
-@permission_required("audit.change_auditperiod", raise_exception=True)
 def upload(request, pk, kind):
-    audit = get_object_or_404(AuditPeriod, pk=pk)
+    if kind not in UPLOADS:
+        raise Http404("No such upload.")
+    if not request.user.has_perm(UPLOAD_PERMISSIONS[kind]):
+        raise PermissionDenied
+    audit = get_object_or_404(AuditPeriod.objects.select_related("outlet__brand"), pk=pk)
     f = request.FILES.get("file")
+    label = UPLOADS[kind][0]
     if audit.locked:
         messages.error(request, "This audit is signed off and locked.")
-    elif kind not in UPLOADS or not f:
+    elif not f:
         messages.error(request, "Choose a file to upload.")
+    elif f.size > MAX_UPLOAD_BYTES:
+        messages.error(request, f"{label}: the file is larger than {MAX_UPLOAD_BYTES // (1024 * 1024)} MB. "
+                                "Nothing was changed.")
     else:
         try:
             if kind == "pos":
@@ -111,15 +125,40 @@ def upload(request, pk, kind):
             else:
                 report = importers.load_stock_count(audit, f, kind)
         except ValueError as exc:
-            messages.error(request, f"{UPLOADS[kind][0]}: {exc}")
+            messages.error(request, f"{label}: {exc}")
+        except Exception:  # an unreadable file must never show a crash page
+            import logging
+
+            logging.getLogger(__name__).exception("Upload failed: %s %s", kind, getattr(f, "name", ""))
+            messages.error(request, f"{label}: this file couldn't be read, so nothing was changed. "
+                                    "Save it again as .xlsx or .csv and upload that.")
         else:
-            skipped = f", {report.skipped} handling-charge lines skipped" if report.skipped else ""
-            messages.success(request, f"{UPLOADS[kind][0]}: {report.created} lines loaded{skipped}.")
+            n = report.created
+            skipped = (f", {report.skipped} handling-charge line{'s' if report.skipped > 1 else ''} skipped"
+                       if report.skipped else "")
+            messages.success(request, f"{label}: {n} line{'s' if n != 1 else ''} loaded{skipped}.")
             if report.warnings:
                 messages.warning(
-                    request, f"{len(report.warnings)} lines didn't match: " + "; ".join(report.warnings[:8])
-                    + (" ..." if len(report.warnings) > 8 else "")
+                    request, "Please check: " + "; ".join(report.warnings[:8])
+                    + (f"; and {len(report.warnings) - 8} more" if len(report.warnings) > 8 else "")
                 )
+    return redirect("audit_detail", pk)
+
+
+@require_POST
+@login_required
+def sign_off(request, pk):
+    """Sign off freezes the month (results, recipes and prices as they are now); unlock reopens it."""
+    if not request.user.has_perm("audit.sign_off_auditperiod"):
+        raise PermissionDenied
+    audit = get_object_or_404(AuditPeriod.objects.select_related("outlet__brand"), pk=pk)
+    if request.POST.get("action") == "unlock":
+        services.unlock(audit)
+        messages.success(request, f"{audit} is unlocked. Its numbers now follow today's recipes and prices "
+                                  "again, and files can be uploaded.")
+    else:
+        services.sign_off(audit, request.user)
+        messages.success(request, f"{audit} is signed off. Its numbers are frozen as they are now.")
     return redirect("audit_detail", pk)
 
 
@@ -148,9 +187,23 @@ def menu_costing(request, brand_code):
 def trends(request):
     rows = []
     for audit in AuditPeriod.objects.select_related("outlet__brand").order_by("outlet__brand__code", "outlet__code", "period"):
-        d = services.run_audit(audit).dashboard()
-        rows.append({"audit": audit, **d})
+        if audit.locked and audit.snapshot and "dashboard" in audit.snapshot:
+            d, status = audit.snapshot["dashboard"], audit.snapshot["status"]
+        else:
+            result, issues, status = services.audit_report(audit)
+            d = result.dashboard()
+        rows.append({"audit": audit, **d, "status": status})
     return render(request, "audit/trends.html", {"rows": rows})
+
+
+FORMULA_START = ("=", "+", "-", "@", "\t", "\r")
+
+
+def safe_cell(value):
+    """Text that Excel would run as a formula (=, +, -, @) is written as plain text instead."""
+    if isinstance(value, str) and value.startswith(FORMULA_START):
+        return "'" + value
+    return value
 
 
 @login_required
@@ -160,7 +213,7 @@ def export_xlsx(request, pk):
     from openpyxl.styles import Font
 
     audit = get_object_or_404(AuditPeriod.objects.select_related("outlet__brand"), pk=pk)
-    result = services.run_audit(audit)
+    result, issues, status = services.audit_report(audit)
     dash = result.dashboard()
     wb = openpyxl.Workbook()
 
@@ -170,13 +223,16 @@ def export_xlsx(request, pk):
         for c in ws[1]:
             c.font = Font(bold=True)
         for r in rows:
-            ws.append(r)
+            ws.append([safe_cell(v) for v in r])
         ws.freeze_panes = "A2"
 
     ws = wb.active
     ws.title = "Dashboard"
     for label, value in [
-        ("Outlet", str(audit.outlet)), ("Period", audit.period), ("Status", dash["status"]),
+        ("Outlet", str(audit.outlet)), ("Period", audit.period), ("Status", status["label"]),
+        ("Status detail", "; ".join(status["reasons"])),
+        ("Signed off", f"{audit.locked_at:%d/%m/%Y %H:%M} by {audit.locked_by or '-'}" if audit.locked and audit.locked_at
+         else ("Yes" if audit.locked else "No")),
         ("Total sales (POS)", dash["total_sales"]),
         ("Theoretical COGS - F&B", dash["theoretical_fb"]),
         ("Theoretical COGS - all categories", dash["theoretical_all"]),
@@ -186,11 +242,11 @@ def export_xlsx(request, pk):
         ("Variance - F&B", dash["variance_fb"]),
         ("Variance %", dash["variance_fb_pct"]),
     ]:
-        ws.append([label, value])
+        ws.append([label, safe_cell(value)])
     ws.append([])
     ws.append(["Category", "Theoretical", "Actual", "Variance", "Actual % of sales"])
     for c in dash["by_category"]:
-        ws.append([c["category"], c["theoretical"], c["actual"], c["variance"], c["pct_of_sales"]])
+        ws.append([safe_cell(c["category"]), c["theoretical"], c["actual"], c["variance"], c["pct_of_sales"]])
 
     sheet("Variance", ["SKU", "Item", "Category", "Has recipe", "Theoretical", "Opening", "Purchases",
                        "Closing", "Actual", "Variance", "Variance %"],
@@ -207,7 +263,7 @@ def export_xlsx(request, pk):
            for r in result.consumption if r.net])
     sheet("Checks", ["Check", "Count", "Status", "What to do", "Details"],
           [[c.label, c.count, "PASS" if c.passed else "REVIEW", c.action, "; ".join(c.details[:50])]
-           for c in result.checks + services.input_issues(audit)])
+           for c in result.checks + issues])
 
     buf = BytesIO()
     wb.save(buf)

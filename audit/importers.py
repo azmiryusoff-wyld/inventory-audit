@@ -56,6 +56,63 @@ def to_decimal(value, default=Decimal("0")) -> Decimal:
     return -d if negative else d
 
 
+_NUMBER = re.compile(r"^(\d{1,3}(,\d{3})+|\d+)?(\.\d+)?$")
+
+
+def parse_number(value) -> Decimal | None:
+    """Strict reading of one number cell from an upload.
+
+    Accepts 12, 1234.5, 1,234.50, RM 1,234.50, (2.00), -3, 95%. Blank or '-' gives None.
+    Anything else (text, '12,5', '1.234,50', '1e3', '5.00-') raises ValueError, so a typo
+    is reported instead of quietly becoming 0.
+    """
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float, Decimal)):
+        return Decimal(str(value))
+    s = str(value).strip()
+    if s in ("", "-", "—"):
+        return None
+    t = re.sub(r"\s+", "", s)
+    negative = t.startswith("(") and t.endswith(")")
+    if negative:
+        t = t[1:-1]
+    if t.startswith("-"):
+        negative, t = not negative, t[1:]
+    t = re.sub(r"^(RM|MYR)", "", t, flags=re.IGNORECASE)
+    if t.startswith("-"):
+        negative, t = not negative, t[1:]
+    percent = t.endswith("%")
+    if percent:
+        t = t[:-1]
+    if not t or t == "." or not _NUMBER.match(t):
+        raise ValueError(f"'{s}' is not a number")
+    d = Decimal(t.replace(",", ""))
+    if percent:
+        d /= 100
+    return -d if negative else d
+
+
+def parse_date(value) -> date | None:
+    """Like to_date, but a cell that has something in it and isn't a date raises ValueError."""
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return None
+    d = to_date(value)
+    if d is None:
+        raise ValueError(f"'{clean(value)}' is not a date (use DD/MM/YYYY)")
+    return d
+
+
+class RowErrors(ValueError):
+    """Rows in an upload that can't be read. Nothing from the file is loaded."""
+
+    def __init__(self, errors: list[str]):
+        self.errors = errors
+        shown = "; ".join(errors[:10]) + (f"; and {len(errors) - 10} more" if len(errors) > 10 else "")
+        super().__init__(f"Nothing was loaded. Fix {'this row' if len(errors) == 1 else 'these rows'} "
+                         f"in the file and upload it again: {shown}")
+
+
 def to_bool(value, default=True) -> bool:
     if value is None or value == "":
         return default
@@ -87,24 +144,52 @@ def norm(value) -> str:
     return clean(value).casefold()
 
 
+UPLOAD_EXTENSIONS = (".xlsx", ".xlsm", ".csv", ".txt")
+
+
 def read_rows(file, sheet: str | None = None) -> list[list]:
-    """Return every row of a .xlsx (optionally one named tab) or .csv as lists."""
+    """Return every row of a .xlsx (optionally one named tab) or .csv as lists.
+
+    Anything that can't be read raises ValueError with a message a person can act on.
+    """
     name = getattr(file, "name", str(file)).lower()
+    if not name.endswith(UPLOAD_EXTENSIONS):
+        raise ValueError("This isn't an Excel (.xlsx) or CSV file. Export the report as .xlsx or .csv and upload that.")
     if name.endswith((".xlsx", ".xlsm")):
+        import zipfile
+
         import openpyxl
 
-        wb = openpyxl.load_workbook(file, read_only=True, data_only=True)
+        try:
+            wb = openpyxl.load_workbook(file, read_only=True, data_only=True)
+        except (zipfile.BadZipFile, OSError, KeyError, ValueError) as exc:
+            raise ValueError("This file can't be opened as an Excel workbook. Open it in Excel or Google Sheets, "
+                             "save it again as .xlsx (or .csv), and upload that.") from exc
+        if sheet and sheet not in wb.sheetnames:
+            raise ValueError(f"The workbook has no tab called '{sheet}'.")
         ws = wb[sheet] if sheet else wb.worksheets[0]
         rows = [list(r) for r in ws.iter_rows(values_only=True)]
         wb.close()
         return rows
     if hasattr(file, "read"):
         raw = file.read()
-        text = raw.decode("utf-8-sig") if isinstance(raw, bytes) else raw
     else:
-        with open(file, encoding="utf-8-sig") as fh:
-            text = fh.read()
-    return [row for row in csv.reader(io.StringIO(text))]
+        with open(file, "rb") as fh:
+            raw = fh.read()
+    if isinstance(raw, bytes):
+        try:
+            text = raw.decode("utf-8-sig")
+        except UnicodeDecodeError:
+            text = raw.decode("cp1252", errors="replace")  # CSVs saved by older Excel on Windows
+    else:
+        text = raw
+    head = "\n".join(text.splitlines()[:20])
+    # Excel in some regional settings saves "CSV" with semicolons; a few tools export tabs.
+    delimiter = max([",", ";", "\t"], key=lambda d: (head.count(d), d == ","))
+    try:
+        return [row for row in csv.reader(io.StringIO(text), delimiter=delimiter)]
+    except csv.Error as exc:
+        raise ValueError(f"This CSV file can't be read ({exc}). Save it again from Excel as CSV and upload that.") from exc
 
 
 def find_header(rows: list[list], required: list[str], scan: int = 30) -> tuple[int, dict[str, int]]:
@@ -133,6 +218,22 @@ class PosLocationError(ValueError):
     pass
 
 
+# Header names that give away which export a file is, so a file in the wrong upload slot is caught.
+OTHER_FILE_HINTS = {
+    "inventoryitemcode": "a Xero invoice export. Upload it under Supplier purchases or Inter-company purchases",
+    "total rm value": "a stock count. Upload it under Opening or Closing stock count",
+}
+TOTAL_ROW_NAMES = {"total", "subtotal", "sub total", "grand total"}
+
+
+def _wrong_file(rows: list[list], allowed: set[str] = frozenset()) -> None:
+    for row in rows[:30]:
+        cells = {norm(c) for c in row}
+        for hint, what in OTHER_FILE_HINTS.items():
+            if hint in cells and hint not in allowed:
+                raise ValueError(f"This looks like {what}.")
+
+
 def read_pos_sales(file, location: str = "") -> list[dict]:
     """POS item sales export -> [{'pos_name', 'qty'}], summed by name.
 
@@ -141,17 +242,27 @@ def read_pos_sales(file, location: str = "") -> list[dict]:
       * Item Sales (Count_Gross): Item, '<LOCATION> (Count)', '<LOCATION> (Price)', ... (several outlets;
         ``location`` picks the outlet's Count column)
       * a bare two-column paste: name, quantity
+    A quantity that isn't a number stops the upload with the row number; Total rows are left out.
     """
     rows = read_rows(file)
+    _wrong_file(rows)
     totals: dict[str, tuple[str, Decimal]] = {}
+    errors: list[str] = []
 
-    def add(name, q):
+    def add(line_no, name, q):
         name = clean(name)
-        if not name:
+        if not name or norm(name) in TOTAL_ROW_NAMES:
+            return
+        try:
+            qty = parse_number(q)
+        except ValueError as exc:
+            errors.append(f"Row {line_no}: quantity {exc} ({name})")
+            return
+        if qty is None:
             return
         key = norm(name)
         prev = totals.get(key, (name, Decimal("0")))
-        totals[key] = (prev[0], prev[1] + to_decimal(q))
+        totals[key] = (prev[0], prev[1] + qty)
 
     header = None
     for i, row in enumerate(rows[:30]):
@@ -160,74 +271,141 @@ def read_pos_sales(file, location: str = "") -> list[dict]:
             header = i, {c: j for j, c in enumerate(cells) if c}
             break
     if header is None:
-        for r in rows:
-            if len(r) >= 2:
-                add(r[0], r[1])
+        # A bare paste: exactly a name and a quantity on every line.
+        filled = [(i, [c for c in r if clean(c)]) for i, r in enumerate(rows)]
+        filled = [(i, cells) for i, cells in filled if cells]
+        if not filled or any(len(cells) != 2 for _, cells in filled):
+            raise ValueError(
+                "Could not find the sales columns. Expected the POS Item Sales Report Summary "
+                "(with 'Full Name' and 'Quantity' columns), the multi-outlet report (with "
+                "'<outlet> (Count)' columns), or two columns: item name and quantity."
+            )
+        for n, (i, (name, q)) in enumerate(filled):
+            try:
+                parse_number(q)
+            except ValueError:
+                if n == 0:
+                    continue  # a heading line such as "Item, Qty"
+            add(i + 1, name, q)
     else:
         start, cols = header
         count_cols = {c[: -len("(count)")].strip(): j for c, j in cols.items() if c.endswith("(count)")}
         if count_cols:
-            if len(count_cols) == 1:
-                qty_col = next(iter(count_cols.values()))
-            elif location and norm(location) in count_cols:
+            names = ", ".join(sorted(k.upper() for k in count_cols))
+            if location and norm(location) in count_cols:
                 qty_col = count_cols[norm(location)]
+            elif len(count_cols) == 1 and not location:
+                qty_col = next(iter(count_cols.values()))
+            elif location:
+                raise PosLocationError(
+                    f"This report has no column for this outlet's POS location ({location}). It covers: "
+                    f"{names}. Upload the report for this outlet, or correct the outlet's POS location "
+                    "under Master data > Outlets."
+                )
             else:
-                names = ", ".join(sorted(k.upper() for k in count_cols))
                 raise PosLocationError(
                     f"This report covers several outlets ({names}). Set the outlet's POS location "
                     "under Master data > Outlets to one of these names."
                 )
             item_col = cols.get("item", 0)
-            for r in rows[start + 1:]:
+            for i, r in enumerate(rows[start + 1:], start=start + 2):
                 if len(r) > max(item_col, qty_col):
-                    add(r[item_col], r[qty_col])
+                    add(i, r[item_col], r[qty_col])
         else:
             has_full = norm("Full Name") in cols
-            for r in rows[start + 1:]:
+            for i, r in enumerate(rows[start + 1:], start=start + 2):
                 if has_full:
                     name = cell(r, cols, "Full Name")
                 else:
                     group, item = clean(cell(r, cols, "Category / Group")), clean(cell(r, cols, "Item"))
                     name = f"{group} - {item}" if group and item else group or item
-                add(name, cell(r, cols, "Quantity"))
+                add(i, name, cell(r, cols, "Quantity"))
+    if errors:
+        raise RowErrors(errors)
     return [{"pos_name": n, "qty": q} for n, q in totals.values() if q]
 
 
 def read_xero_invoices(file) -> list[dict]:
-    """Xero invoice line export -> purchase lines."""
+    """Xero invoice line export -> purchase lines.
+
+    Lines with no item code are returned with sku "" so the loader can report them (with their
+    value) instead of dropping them unseen. Blank lines are ignored.
+    """
     rows = read_rows(file)
+    _wrong_file(rows, allowed={"inventoryitemcode"})
     start, cols = find_header(rows, ["InventoryItemCode", "Quantity", "LineAmount"])
-    out = []
-    for r in rows[start + 1:]:
+    out, errors = [], []
+    for i, r in enumerate(rows[start + 1:], start=start + 2):
         sku = clean(cell(r, cols, "InventoryItemCode"))
-        if not sku:
+        description = clean(cell(r, cols, "Description"))
+        raw_qty, raw_value = cell(r, cols, "Quantity"), cell(r, cols, "LineAmount")
+        if not sku and not description and not clean(raw_value) and not clean(raw_qty):
             continue
+        label = sku or description or "line"
+        before = len(errors)
+        try:
+            qty = parse_number(raw_qty)
+        except ValueError as exc:
+            errors.append(f"Row {i}: Quantity {exc} ({label})")
+            qty = None
+        try:
+            value = parse_number(raw_value)
+        except ValueError as exc:
+            errors.append(f"Row {i}: LineAmount {exc} ({label})")
+            value = None
+        try:
+            invoice_date = parse_date(cell(r, cols, "InvoiceDate"))
+        except ValueError as exc:
+            errors.append(f"Row {i}: InvoiceDate {exc} ({label})")
+            invoice_date = None
+        if sku and value is None and len(errors) == before:
+            errors.append(f"Row {i}: LineAmount is blank ({label})")
         out.append({
             "sku": sku,
-            "description": clean(cell(r, cols, "Description")),
-            "qty": to_decimal(cell(r, cols, "Quantity")),
-            "value": to_decimal(cell(r, cols, "LineAmount")),
+            "description": description,
+            "qty": qty or Decimal("0"),
+            "value": value or Decimal("0"),
             "invoice_number": clean(cell(r, cols, "InvoiceNumber")),
-            "invoice_date": to_date(cell(r, cols, "InvoiceDate")),
+            "invoice_date": invoice_date,
             "supplier": clean(cell(r, cols, "ContactName")),
         })
+    if errors:
+        raise RowErrors(errors)
     return out
 
 
 def read_stock_count(file) -> list[dict]:
-    """Outlet stock count form -> [{'sku', 'description', 'value'}]."""
+    """Outlet stock count form -> [{'sku', 'description', 'value'}].
+
+    A counted line needs a value (0 if nothing is left); a blank or negative value stops the upload.
+    Lines with a value but no SKU come back with sku "" so the loader can report them.
+    """
     rows = read_rows(file)
+    _wrong_file(rows, allowed={"total rm value"})
     start, cols = find_header(rows, ["SKU", "Total RM Value"])
-    out = []
-    for r in rows[start + 1:]:
+    out, errors = [], []
+    for i, r in enumerate(rows[start + 1:], start=start + 2):
         sku = clean(cell(r, cols, "SKU"))
-        if not sku:
+        description = clean(cell(r, cols, "Item Name"))
+        raw = cell(r, cols, "Total RM Value")
+        label = sku or description
+        try:
+            value = parse_number(raw)
+        except ValueError as exc:
+            errors.append(f"Row {i}: Total RM Value {exc} ({label})")
             continue
-        out.append({
-            "sku": sku,
-            "description": clean(cell(r, cols, "Item Name")),
-            "value": to_decimal(cell(r, cols, "Total RM Value")),
-        })
+        if not sku:
+            if value:
+                out.append({"sku": "", "description": description, "value": value})
+            continue
+        if value is None:
+            errors.append(f"Row {i}: Total RM Value is blank ({label}). Enter 0 if none is left")
+        elif value < 0:
+            errors.append(f"Row {i}: Total RM Value can't be negative ({label}: {raw})")
+        else:
+            out.append({"sku": sku, "description": description, "value": value})
+    if errors:
+        raise RowErrors(errors)
     return out
 
 
@@ -247,6 +425,14 @@ ITEM_MASTER_COLUMNS = {
 }
 
 
+def _category(value) -> str:
+    """Match the report's categories ignoring case and spacing; anything else is kept as typed."""
+    from .engine import DEFAULT_CATEGORIES
+
+    text = clean(value) or "Other"
+    return next((c for c in DEFAULT_CATEGORIES if norm(c) == norm(text)), text)
+
+
 def parse_item_master(rows: list[list]) -> list[dict]:
     start, cols = find_header(rows, ["SKU", "Item Name", "Pack Size (base units per pack)"])
     out = []
@@ -262,7 +448,7 @@ def parse_item_master(rows: list[list]) -> list[dict]:
         out.append({
             "sku": sku,
             "name": clean(cell(r, cols, "Item Name")),
-            "category": clean(cell(r, cols, "Category")) or "Other",
+            "category": _category(cell(r, cols, "Category")),
             "pack_size": to_decimal(cell(r, cols, "Pack Size (base units per pack)")),
             "base_uom": clean(cell(r, cols, "Base UOM")),
             "pack_uom": clean(cell(r, cols, "Pack UOM")),
@@ -340,6 +526,14 @@ def load_item_master(rows: list[list]) -> ImportReport:
         _, created = Item.objects.update_or_create(sku=data["sku"], defaults={**data, "synced_at": now})
         report.created += created
         report.updated += not created
+    from .engine import DEFAULT_CATEGORIES
+
+    odd = sorted({d["category"] for d in parse_item_master(rows) if d["category"] not in DEFAULT_CATEGORIES})
+    if odd:
+        report.warnings.append(
+            "Categories not in the COGS report (" + ", ".join(odd) + "). Items in them are not counted in "
+            "Food & Beverage; change them in the central item master to one of: " + ", ".join(DEFAULT_CATEGORIES)
+        )
     gone = Item.objects.exclude(sku__in=seen).filter(active=True).update(active=False)
     if gone:
         report.warnings.append(f"{gone} items no longer in the item master were marked inactive")
@@ -362,60 +556,141 @@ def _menu_lookup(brand):
     return lookup
 
 
-@transaction.atomic
+def _lock_open_audit(audit):
+    """Lock the audit row until the upload commits, so two uploads of the same file can't interleave."""
+    from .models import AuditPeriod
+
+    locked = AuditPeriod.objects.select_for_update().get(pk=audit.pk)
+    if locked.locked:
+        raise ValueError("This audit is signed off and locked. Nothing was changed.")
+    return locked
+
+
+def _no_lines(what):
+    return ValueError(f"No {what} were found in this file, so nothing was changed. "
+                      "Check you picked the right file.")
+
+
+def _money(d) -> str:
+    return f"{d:,.2f}"
+
+
 def load_pos_sales(audit, file, replace=True) -> ImportReport:
     from .models import SaleLine
 
+    rows = read_pos_sales(file, location=audit.outlet.pos_location)
+    if not rows:
+        raise _no_lines("sales lines")
     report = ImportReport()
-    if replace:
-        audit.sales.all().delete()
-    menu = _menu_lookup(audit.brand)
-    for row in read_pos_sales(file, location=audit.outlet.pos_location):
-        m = menu.get(norm(row["pos_name"]))
-        SaleLine.objects.create(audit=audit, pos_name=row["pos_name"], menu_item=m, qty=row["qty"])
-        report.created += 1
-        if m is None:
-            report.warnings.append(f"Not on the menu: {row['pos_name']}")
+    with transaction.atomic():
+        audit = _lock_open_audit(audit)
+        if replace:
+            audit.sales.all().delete()
+        menu = _menu_lookup(audit.brand)
+        lines = []
+        for row in rows:
+            m = menu.get(norm(row["pos_name"]))
+            lines.append(SaleLine(audit=audit, pos_name=row["pos_name"], menu_item=m, qty=row["qty"]))
+            if m is None:
+                report.warnings.append(f"Not on the menu: {row['pos_name']}")
+            if row["qty"] < 0:
+                report.warnings.append(f"Negative quantity (more refunds than sales): {row['pos_name']} {row['qty']}")
+        SaleLine.objects.bulk_create(lines)
+        report.created = len(lines)
     return report
 
 
-@transaction.atomic
 def load_purchases(audit, file, source="supplier", replace=True) -> ImportReport:
+    from collections import Counter
+
     from .models import Item, PurchaseLine
 
+    rows = read_xero_invoices(file)
     report = ImportReport()
-    if replace:
-        audit.purchases.filter(source=source).delete()
-    items = {i.sku: i for i in Item.objects.all()}
     skip = [norm(x) for x in settings.PURCHASE_SKIP_DESCRIPTIONS]
-    for row in read_xero_invoices(file):
+    keep, no_code = [], []
+    for row in rows:
         if any(x in norm(row["description"]) for x in skip):
             report.skipped += 1  # e.g. delivery handling charges: not stock
-            continue
-        item = items.get(row["sku"])
-        PurchaseLine.objects.create(audit=audit, source=source, item=item, **row)
-        report.created += 1
-        msg = f"Unknown SKU {row['sku']} ({row['description']})"
-        if item is None and msg not in report.warnings:
-            report.warnings.append(msg)
+        elif not row["sku"]:
+            no_code.append(row)
+        else:
+            keep.append(row)
+    if not keep:
+        raise _no_lines("invoice lines with an item code")
+    if no_code:
+        total = sum(r["value"] for r in no_code)
+        report.warnings.append(
+            f"{len(no_code)} line{'s' if len(no_code) > 1 else ''} with no InventoryItemCode not loaded "
+            f"({_money(total)} in total): "
+            + ", ".join(f"{r['description'] or 'no description'} {_money(r['value'])}" for r in no_code[:5])
+            + (" ..." if len(no_code) > 5 else "")
+        )
+    year, month = (int(x) for x in audit.period.split("-"))
+    outside = [r for r in keep if r["invoice_date"] and (r["invoice_date"].year, r["invoice_date"].month) != (year, month)]
+    if outside:
+        report.warnings.append(
+            f"{len(outside)} line{'s' if len(outside) > 1 else ''} dated outside {audit.period} "
+            "(loaded, and flagged under Data checks)"
+        )
+    dupes = Counter((r["invoice_number"], r["invoice_date"], r["sku"], r["qty"], r["value"]) for r in keep)
+    for (inv, _, sku, _, value), n in dupes.items():
+        if n > 1:
+            report.warnings.append(f"Possible duplicate: {inv or 'no invoice no.'} {sku} {_money(value)} appears {n} times")
+    for r in keep:
+        if r["value"] < 0 or r["qty"] < 0:
+            report.warnings.append(f"Negative line (credit note?): {r['invoice_number']} {r['sku']} {_money(r['value'])}")
+    with transaction.atomic():
+        audit = _lock_open_audit(audit)
+        if replace:
+            audit.purchases.filter(source=source).delete()
+        items = {i.sku: i for i in Item.objects.all()}
+        lines = []
+        for row in keep:
+            item = items.get(row["sku"])
+            lines.append(PurchaseLine(audit=audit, source=source, item=item, **row))
+            msg = f"Unknown SKU {row['sku']} ({row['description']})"
+            if item is None and msg not in report.warnings:
+                report.warnings.append(msg)
+        PurchaseLine.objects.bulk_create(lines)
+        report.created = len(lines)
     return report
 
 
-@transaction.atomic
 def load_stock_count(audit, file, kind, replace=True) -> ImportReport:
+    from collections import Counter
+
     from .models import Item, StockCount
 
+    rows = read_stock_count(file)
     report = ImportReport()
-    if replace:
-        audit.stock_counts.filter(kind=kind).delete()
-    items = {i.sku: i for i in Item.objects.all()}
-    for row in read_stock_count(file):
-        item = items.get(row["sku"])
-        StockCount.objects.create(audit=audit, kind=kind, item=item, **row)
-        report.created += 1
-        msg = f"Unknown SKU {row['sku']} ({row['description']})"
-        if item is None and msg not in report.warnings:
-            report.warnings.append(msg)
+    keep = [r for r in rows if r["sku"]]
+    no_sku = [r for r in rows if not r["sku"]]
+    if not keep:
+        raise _no_lines("stock count lines with a SKU")
+    if no_sku:
+        report.warnings.append(
+            f"{len(no_sku)} line{'s' if len(no_sku) > 1 else ''} with a value but no SKU not loaded "
+            f"({_money(sum(r['value'] for r in no_sku))} in total): "
+            + ", ".join(f"{r['description'] or 'no name'} {_money(r['value'])}" for r in no_sku[:5])
+        )
+    for sku, n in Counter(r["sku"] for r in keep).items():
+        if n > 1:
+            report.warnings.append(f"{sku} is on {n} rows; their values were added together")
+    with transaction.atomic():
+        audit = _lock_open_audit(audit)
+        if replace:
+            audit.stock_counts.filter(kind=kind).delete()
+        items = {i.sku: i for i in Item.objects.all()}
+        lines = []
+        for row in keep:
+            item = items.get(row["sku"])
+            lines.append(StockCount(audit=audit, kind=kind, item=item, **row))
+            msg = f"Unknown SKU {row['sku']} ({row['description']})"
+            if item is None and msg not in report.warnings:
+                report.warnings.append(msg)
+        StockCount.objects.bulk_create(lines)
+        report.created = len(lines)
     return report
 
 

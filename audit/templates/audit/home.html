@@ -14,10 +14,10 @@
 {% if brands %}<p>Menu costing: {% for b in brands %}<a href="{% url 'menu_costing' b.code %}">{{ b.code }}</a>{% if not forloop.last %} · {% endif %}{% endfor %}</p>{% endif %}
 <div class="scroll">
 <table>
-  <tr><th>Period</th><th>Brand</th><th>Outlet</th><th>Status</th></tr>
+  <tr><th>Period</th><th>Brand</th><th>Outlet</th><th>Sign-off</th></tr>
   {% for a in audits %}
   <tr><td><a href="{% url 'audit_detail' a.pk %}">{{ a.period }}</a></td><td>{{ a.outlet.brand.code }}</td><td>{{ a.outlet.name }}</td>
-      <td>{% if a.locked %}Signed off{% else %}Open{% endif %}</td></tr>
+      <td>{% if a.locked %}<span class="pill LOCKED">Signed off</span>{% if a.snapshot.status %} <span class="pill {{ a.snapshot.status.code }}">{{ a.snapshot.status.label }}</span>{% endif %}{% else %}<span class="muted">Not signed off</span>{% endif %}</td></tr>
   {% empty %}
   <tr><td colspan="4" class="muted">No audits yet. Add a brand and outlets under Master data, then start one above.</td></tr>
   {% endfor %}

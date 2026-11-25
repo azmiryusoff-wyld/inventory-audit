@@ -3,5 +3,6 @@ openpyxl==3.1.5
 dj-database-url==2.3.0
 psycopg[binary]==3.2.3
 gunicorn==23.0.0
+whitenoise==6.8.2
 # Optional: sync the item master straight from Google Sheets
 gspread==6.1.4

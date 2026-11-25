@@ -8,12 +8,16 @@
   {% for key, info in uploads.items %}
     <tr><td><strong>{{ info.0 }}</strong><div class="muted">{{ info.1 }}</div>
           <div><a href="{% url 'upload_template' key %}">Download empty template (.csv)</a></div></td>
-        <td class="n">{% for k, v in counts.items %}{% if k == key %}{{ v }} lines{% endif %}{% endfor %}</td>
-        <td>{% if not audit.locked %}<form method="post" enctype="multipart/form-data" action="{% url 'audit_upload' audit.pk key %}" class="inline">{% csrf_token %}
-          <input type="file" name="file" accept=".xlsx,.csv" required><button>Upload</button></form>{% endif %}</td></tr>
+        {% for k, v in counts.items %}{% if k == key %}
+        <td class="n">{{ v }} line{{ v|pluralize }}</td>
+        <td>{% if audit.locked %}<span class="muted">Signed off</span>{% elif info.2 %}<form method="post" enctype="multipart/form-data" action="{% url 'audit_upload' audit.pk key %}" class="inline"
+              {% if v %}onsubmit="return confirm('This replaces the {{ v }} line{{ v|pluralize }} already loaded for {{ info.0|escapejs }}. Continue?')"{% endif %}>{% csrf_token %}
+          <input type="file" name="file" accept=".xlsx,.xlsm,.csv,.txt" required><button>{% if v %}Replace{% else %}Upload{% endif %}</button></form>
+          {% else %}<span class="muted">Uploaded by procurement</span>{% endif %}</td>
+        {% endif %}{% endfor %}</tr>
   {% endfor %}
   </table>
-  <p class="muted">Uploading a file again replaces that file's lines. Production, transfers and wastage are entered under <a href="{% url 'admin:audit_auditperiod_change' audit.pk %}">Master data › this audit</a>.</p>
+  <p class="muted">Uploading a file again replaces that file's lines. A file that can't be read, or has no lines, changes nothing. Production, transfers and wastage are entered under <a href="{% url 'admin:audit_auditperiod_change' audit.pk %}">Master data › this audit</a>.</p>
 </div>
 
 <div class="grid">
