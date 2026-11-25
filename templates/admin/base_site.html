@@ -1,0 +1,20 @@
+{% extends "admin/base.html" %}
+{# Admin pages in the app's colours, with a way back to the app. #}
+{% block title %}{% if subtitle %}{{ subtitle }} | {% endif %}{{ title }} | {{ site_title|default:_('Django site admin') }}{% endblock %}
+{% block extrastyle %}{{ block.super }}
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  html[data-theme="light"], :root { --primary:#0b1b33; --secondary:#0f766e; --accent:#5eead4; --primary-fg:#fff;
+    --header-color:#c3cede; --header-branding-color:#fff; --header-bg:#0b1b33; --header-link-color:#fff;
+    --breadcrumbs-bg:#0f766e; --link-fg:#0f766e; --link-hover-color:#115e59; --link-selected-fg:#0f766e;
+    --button-bg:#0f766e; --button-hover-bg:#115e59; --default-button-bg:#0f766e; --default-button-hover-bg:#115e59;
+    --selected-row:#e6f4f2; --font-family-primary:"Inter",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+  #header { padding: 12px 32px; }
+  #site-name a { font-weight: 650; letter-spacing: -.01em; }
+</style>
+{% endblock %}
+{% block branding %}<div id="site-name"><a href="{% url 'admin:index' %}">{{ site_header|default:_('Django administration') }}</a></div>
+{% if user.is_anonymous %}{% include "admin/color_theme_toggle.html" %}{% endif %}{% endblock %}
+{% block userlinks %}<a href="/">Back to the app</a> / {{ block.super }}{% endblock %}
+{% block nav-global %}{% endblock %}

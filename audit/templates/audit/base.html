@@ -1,147 +1,51 @@
-{% load static %}<!doctype html>
+{% load static audit_tags %}<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block title %}Inventory Audit{% endblock %}</title>
-<style>
-  :root { --ink:#1d2433; --muted:#667085; --line:#e4e7ec; --bg:#f7f8fa; --card:#fff;
-          --accent:#2f5aa8; --good:#1a7f4b; --bad:#b42318; --warn:#b54708; }
-  * { box-sizing: border-box; }
-  body { margin:0; font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; color:var(--ink); background:var(--bg); }
-  header { background:var(--ink); color:#fff; padding:10px 16px; display:flex; gap:20px; align-items:center; flex-wrap:wrap; }
-  header a { color:#fff; text-decoration:none; opacity:.85 } header a:hover { opacity:1 }
-  header .brand { font-weight:700; opacity:1; margin-right:auto }
-  main { max-width:1280px; margin:0 auto; padding:16px; }
-  h1 { font-size:22px; margin:8px 0 4px } h2 { font-size:16px; margin:24px 0 8px }
-  .muted { color:var(--muted) }
-  .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:14px; margin-bottom:14px; }
-  .grid { display:grid; gap:12px; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); }
-  .kpi .label { color:var(--muted); font-size:12px } .kpi .value { font-size:20px; font-weight:600; font-variant-numeric:tabular-nums }
-  table { width:100%; border-collapse:collapse; background:var(--card); font-variant-numeric:tabular-nums }
-  th, td { padding:6px 8px; border-bottom:1px solid var(--line); text-align:left; vertical-align:top }
-  th { font-size:12px; color:var(--muted); font-weight:600; position:sticky; top:0; background:var(--card) }
-  td.n, th.n { text-align:right; white-space:nowrap }
-  .scroll { overflow-x:auto; border:1px solid var(--line); border-radius:8px; max-height:70vh }
-  .tabs { display:flex; gap:4px; border-bottom:1px solid var(--line); margin:12px 0 16px; flex-wrap:wrap }
-  .tabs a { padding:8px 12px; text-decoration:none; color:var(--muted); border-bottom:2px solid transparent }
-  .tabs a.on { color:var(--ink); border-color:var(--accent); font-weight:600 }
-  .pill { display:inline-block; padding:1px 8px; border-radius:99px; font-size:12px; font-weight:600 }
-  .PASS, .OK, .STAR { background:#e7f6ee; color:var(--good) }
-  .REVIEW, .DOG, .OUTSIDE { background:#fdecea; color:var(--bad) }
-  .INCOMPLETE, .NORECIPE { background:#f2f4f7; color:var(--muted) }
-  .LOCKED { background:#e8eefb; color:var(--accent) }
-  .msg.locked { background:#e8eefb; margin-top:8px }
-  button.secondary, .btn.secondary { background:#fff; color:var(--accent); border:1px solid var(--accent) }
-  .PLOWHORSE, .PUZZLE { background:#fff4e5; color:var(--warn) }
-  .pos { color:var(--bad) } .neg { color:var(--good) } .warn { color:var(--warn) }
-  .msg { padding:8px 12px; border-radius:6px; margin-bottom:8px } .msg.success { background:#e7f6ee } .msg.error { background:#fdecea } .msg.warning { background:#fff4e5 }
-  form.inline { display:flex; gap:8px; align-items:center; flex-wrap:wrap }
-  input, select, button { font:inherit; padding:5px 8px; border:1px solid var(--line); border-radius:6px; background:#fff }
-  button, .btn { background:var(--accent); color:#fff; border:0; cursor:pointer; padding:6px 12px; border-radius:6px; text-decoration:none; display:inline-block }
-  details summary { cursor:pointer }
-  a { color:var(--accent) }
-  abbr[title], .tip { text-decoration:underline dotted; cursor:help }
-  table.sortable th { cursor:pointer; user-select:none } table.sortable th[data-dir="asc"]::after { content:" ▲" } table.sortable th[data-dir="desc"]::after { content:" ▼" }
-  tfoot td { font-weight:600; border-top:2px solid var(--line); position:sticky; bottom:0; background:var(--card) }
-  .toolbar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin:8px 0 }
-  .toolbar input[type=search] { min-width:220px }
-  .subnav { display:flex; gap:12px; flex-wrap:wrap; margin:8px 0 12px } .subnav a.on { font-weight:700; color:var(--ink); text-decoration:none }
-  .form-grid { display:grid; grid-template-columns:minmax(140px,220px) 1fr; gap:8px 12px; align-items:start; max-width:760px }
-  .form-grid label { font-weight:600; padding-top:5px } .form-grid .help { color:var(--muted); font-size:12px } .errorlist { color:var(--bad); margin:2px 0; padding-left:16px }
-  .pager { display:flex; gap:12px; align-items:center; margin:10px 0 }
-  .steps { margin:0; padding-left:20px } .steps li { margin:4px 0 }
-  h2 .btn { font-size:12px; padding:3px 10px; font-weight:400; margin-left:8px }
-  .ok { color:var(--good) } .missing { color:var(--muted) }
-  /* Phones: nothing wider than the screen; wide tables scroll inside their box. */
-  @media (max-width: 640px) {
-    main { padding:10px } header { gap:10px 14px; padding:8px 10px } header .brand { width:100% }
-    h1 { font-size:18px } .grid { grid-template-columns:1fr 1fr } .kpi .value { font-size:16px }
-    form.inline { align-items:stretch } form.inline > * { max-width:100% }
-    input[type=file] { max-width:100%; width:100% } select, input:not([type=checkbox]):not([type=radio]) { max-width:100% }
-    .form-grid { grid-template-columns:1fr } .form-grid label { padding-top:0 }
-    .toolbar input[type=search] { min-width:0; width:100% }
-    .tabs { flex-wrap:nowrap; overflow-x:auto } .tabs a { white-space:nowrap }
-    .tabs a[style] { margin-left:0 !important }
-    .scroll { max-height:none }
-  }
-</style>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{% static 'audit/app.css' %}">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230f766e'/%3E%3Cpath d='m10 17 4 4 8-9' stroke='white' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 </head>
 <body>
-<header>
-  <a class="brand" href="{% url 'home' %}">Inventory Audit</a>
+{% with u=request.resolver_match.url_name|default:"" %}
+{% if user.is_authenticated %}
+<aside class="sidebar" id="sidebar" aria-label="Main menu">
+  <a class="logo" href="{% url 'home' %}"><span class="logo-mark">{% icon "check" 18 %}</span><span>Inventory Audit<small>COGS &amp; stock control</small></span></a>
+  <nav>
+    <a href="{% url 'home' %}" class="{% if u == 'home' or u|slice:':6' == 'audit_' %}on{% endif %}">{% icon "audits" %} Audits</a>
+    <a href="{% url 'month_close' %}" class="{% if u == 'month_close' %}on{% endif %}">{% icon "calendar" %} Month close</a>
+    <a href="{% url 'trends' %}" class="{% if u == 'trends' %}on{% endif %}">{% icon "trends" %} Trends</a>
+    <a href="{% url 'data_home' %}" class="{% if u|slice:':5' == 'data_' or u == 'menu_costing' %}on{% endif %}">{% icon "book" %} Menus &amp; recipes</a>
+    <div class="nav-label">Support</div>
+    <a href="{% url 'help' %}" class="{% if u == 'help' %}on{% endif %}">{% icon "help" %} Help</a>
+    {% if user.is_superuser %}<a href="{% url 'admin:index' %}" title="Brands, outlets, users and access">{% icon "shield" %} Admin</a>{% endif %}
+  </nav>
+  <div class="user">
+    <span class="avatar">{{ user.get_username|slice:":1" }}</span>
+    <div class="who"><b>{{ user.get_full_name|default:user.get_username }}</b><span>{% if user.is_superuser %}Administrator{% else %}{% for g in user.groups.all %}{{ g.name }}{% if not forloop.last %}, {% endif %}{% empty %}Signed in{% endfor %}{% endif %}</span></div>
+    <form method="post" action="{% url 'admin:logout' %}">{% csrf_token %}<button title="Log out" aria-label="Log out">{% icon "logout" %}</button></form>
+  </div>
+</aside>
+<div class="scrim"></div>
+{% endif %}
+<div class="shell"{% if not user.is_authenticated %} style="margin-left:0"{% endif %}>
   {% if user.is_authenticated %}
-  <a href="{% url 'home' %}">Audits</a>
-  <a href="{% url 'month_close' %}">Month close</a>
-  <a href="{% url 'trends' %}">Trends</a>
-  <a href="{% url 'data_home' %}">Menus &amp; recipes</a>
-  <a href="{% url 'help' %}">Help</a>
-  {% if user.is_superuser %}<a href="{% url 'admin:index' %}" title="Brands, outlets, users and access">Admin</a>{% endif %}
+  <header class="topbar">
+    <button id="nav-toggle" aria-controls="sidebar" aria-expanded="false" aria-label="Open menu">{% icon "menu" 22 %}</button>
+    <a class="logo" href="{% url 'home' %}"><span class="logo-mark">{% icon "check" 15 %}</span> Inventory Audit</a>
+  </header>
   {% endif %}
-  {% if user.is_authenticated %}<span class="muted">{{ user.get_username }}</span>
-  <form method="post" action="{% url 'admin:logout' %}" style="margin:0">{% csrf_token %}<button style="background:none;padding:0;opacity:.85">Log out</button></form>{% endif %}
-</header>
-<main>
-  {% for m in messages %}<div class="msg {{ m.tags }}">{{ m }}</div>{% endfor %}
-  {% block content %}{% endblock %}
-</main>
-<script>
-// Click a column heading of a .sortable table to sort it; a search box with data-filter="<table id>"
-// hides rows that don't contain the text, and updates any <tfoot> total marked data-sum.
-(function () {
-  function value(td) {
-    var t = (td ? td.getAttribute("data-v") || td.textContent : "").trim();
-    var n = t.replace(/[,%\s]|RM/g, "");
-    var neg = /^\(.*\)$/.test(n); n = n.replace(/[()]/g, "");
-    if (n === "-" || n === "") return t === "" || t === "-" ? -Infinity : t.toLowerCase();
-    var f = parseFloat(n);
-    return isNaN(f) || !/^-?[\d.]+$/.test(n) ? t.toLowerCase() : (neg ? -f : f);
-  }
-  function fmt(v) { var a = Math.abs(v).toLocaleString("en-US", {minimumFractionDigits: 2, maximumFractionDigits: 2});
-    return Math.abs(v) < 0.005 ? "-" : (v < 0 ? "(" + a + ")" : a); }
-  function bodyRows(table) { return Array.prototype.filter.call(table.tBodies[0].rows, function (r) { return !r.querySelector("th") && !r.hasAttribute("data-empty"); }); }
-  function totals(table) {
-    var foot = table.tFoot; if (!foot) return;
-    Array.prototype.forEach.call(foot.querySelectorAll("[data-sum]"), function (cell) {
-      var i = cell.cellIndex, sum = 0;
-      bodyRows(table).forEach(function (r) { if (r.style.display !== "none") { var v = value(r.cells[i]); if (typeof v === "number" && isFinite(v)) sum += v; } });
-      cell.textContent = fmt(sum);
-    });
-  }
-  document.querySelectorAll("table.sortable").forEach(function (table) {
-    var head = table.tHead ? table.tHead.rows[0] : table.rows[0];
-    Array.prototype.forEach.call(head.cells, function (th, i) {
-      th.title = th.title || "Click to sort";
-      th.addEventListener("click", function () {
-        var dir = th.getAttribute("data-dir") === "asc" ? "desc" : "asc";
-        Array.prototype.forEach.call(head.cells, function (c) { c.removeAttribute("data-dir"); });
-        th.setAttribute("data-dir", dir);
-        var rows = bodyRows(table);
-        rows.sort(function (a, b) {
-          var x = value(a.cells[i]), y = value(b.cells[i]);
-          if (typeof x !== typeof y) { x = String(x); y = String(y); }
-          return (x < y ? -1 : x > y ? 1 : 0) * (dir === "asc" ? 1 : -1);
-        });
-        rows.forEach(function (r) { r.parentNode.appendChild(r); });
-      });
-    });
-  });
-  document.querySelectorAll("[data-filter]").forEach(function (box) {
-    var table = document.getElementById(box.getAttribute("data-filter"));
-    var extra = box.getAttribute("data-filter-select") ? document.getElementById(box.getAttribute("data-filter-select")) : null;
-    var count = document.getElementById(box.getAttribute("data-filter") + "-count");
-    function apply() {
-      var q = box.value.toLowerCase().trim(), cat = extra ? extra.value : "", shown = 0;
-      bodyRows(table).forEach(function (r) {
-        var ok = (!q || r.textContent.toLowerCase().indexOf(q) !== -1) && (!cat || r.getAttribute("data-group") === cat);
-        r.style.display = ok ? "" : "none"; if (ok) shown++;
-      });
-      if (count) count.textContent = shown + " shown";
-      totals(table);
-    }
-    box.addEventListener("input", apply); if (extra) extra.addEventListener("change", apply);
-  });
-})();
-</script>
+  <main class="content">
+    {% if messages %}<div class="messages" role="status">
+    {% for m in messages %}<div class="msg {{ m.tags }}">{% if m.level_tag == "success" %}{% icon "check-circle" %}{% elif m.level_tag == "error" %}{% icon "alert" %}{% elif m.level_tag == "warning" %}{% icon "alert" %}{% else %}{% icon "info" %}{% endif %}<div class="msg-body">{{ m }}</div><button type="button" class="close" aria-label="Dismiss">{% icon "x" 16 %}</button></div>{% endfor %}
+    </div>{% endif %}
+    {% block content %}{% endblock %}
+  </main>
+</div>
+{% endwith %}
+<script src="{% static 'audit/app.js' %}"></script>
 </body>
 </html>

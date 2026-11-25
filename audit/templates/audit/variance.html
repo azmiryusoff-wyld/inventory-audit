@@ -1,13 +1,13 @@
 {% extends "audit/base.html" %}{% load audit_tags %}
 {% block content %}
 {% include "audit/_audit_head.html" %}
-<p class="muted">Actual = opening + purchases − closing. Positive variance means more was used than the recipes predict.
+<p class="lead">Actual = opening + purchases − closing. Positive variance means more was used than the recipes predict.
   Red: used more than the recipes say by over the {{ audit.variance_tolerance|pct }} tolerance. Amber: used less by over the tolerance (often a missing count or purchase).
   Variance qty is the variance in the item's own unit (g, ml, pcs) at today's cost per unit. Click a heading to sort.</p>
 <div class="toolbar">
   <input type="search" placeholder="Search SKU or item" data-filter="variance-table" data-filter-select="variance-cat" aria-label="Search">
   <select id="variance-cat" aria-label="Category"><option value="">All categories</option>{% for c in categories %}<option>{{ c }}</option>{% endfor %}</select>
-  <span id="variance-table-count" class="muted">{{ result.variance|length }} items</span>
+  <span id="variance-table-count" class="muted count">{{ result.variance|length }} items</span>
 </div>
 <div class="scroll"><table class="sortable" id="variance-table">
   <thead><tr><th>SKU</th><th>Item</th><th>Category</th><th>Recipe</th><th class="n">Theoretical</th><th class="n">Opening</th><th class="n">Purchases</th><th class="n">Closing</th><th class="n">Actual</th><th class="n">Variance</th><th class="n">Var %</th><th class="n">Variance qty</th></tr></thead>

@@ -1,4 +1,4 @@
-<h1>Menus &amp; recipes{% if brand %} · {{ brand.code }} {{ brand.name }}{% endif %}</h1>
+<div class="page-head"><div class="titles">{% if brand %}<div class="eyebrow">{{ brand.code }} · {{ brand.name }}</div>{% endif %}<h1>Menus &amp; recipes</h1><p class="sub">Menu items, recipes and semi-finished items per brand, plus the shared item master.</p></div></div>
 <div class="subnav">
   <a href="{% url 'data_home' %}" class="{% if section == 'home' %}on{% endif %}">All brands</a>
   {% if brand %}
@@ -10,5 +10,5 @@
   <a href="{% url 'data_items' %}" class="{% if section == 'items' %}on{% endif %}">Item master</a>
   <a href="{% url 'data_subs' %}" class="{% if section == 'subs' %}on{% endif %}">Substitutions</a>
   <a href="{% url 'data_changes' %}" class="{% if section == 'changes' %}on{% endif %}">Change log</a>
-  {% if brand and brands|length > 1 %}<span style="margin-left:auto"><select onchange="location.href=this.value" aria-label="Switch brand">{% for b in brands %}<option value="{% url 'data_'|add:section|default:'data_menu' b.code %}" {% if b == brand %}selected{% endif %}>{{ b.code }}</option>{% endfor %}</select></span>{% endif %}
+  {% if brand and brands|length > 1 %}<span class="spacer"><select onchange="location.href=this.value" aria-label="Switch brand">{% for b in brands %}<option value="{% url 'data_'|add:section|default:'data_menu' b.code %}" {% if b == brand %}selected{% endif %}>{{ b.code }}</option>{% endfor %}</select></span>{% endif %}
 </div>

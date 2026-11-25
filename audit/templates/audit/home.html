@@ -1,11 +1,14 @@
-{% extends "audit/base.html" %}
+{% extends "audit/base.html" %}{% load audit_tags %}
 {% block content %}
-<h1>Audits</h1>
+<div class="page-head">
+  <div class="titles"><h1>Audits</h1><p class="sub">One audit per outlet per month: upload the files, fix the data checks, then sign off.</p></div>
+  <div class="actions"><a class="btn secondary" href="{% url 'month_close' %}">{% icon "calendar" 16 %} Month close</a></div>
+</div>
 {% if no_access %}
-<div class="msg warning">You don't have access to any outlet yet. Ask the CEO to tick your brands or outlets under Admin › Users.</div>
+<div class="msg warning">{% icon "alert" %}<div class="msg-body">You don't have access to any outlet yet. Ask the CEO to tick your brands or outlets under Admin › Users.</div></div>
 {% endif %}
 <details class="card" {% if not any_audits %}open{% endif %}>
-  <summary><strong>How it works</strong> <span class="muted">(five steps each month)</span></summary>
+  <summary>{% icon "info" %} <strong>How it works</strong> <span class="muted">· five steps each month</span></summary>
   <ol class="steps">
     <li><strong>Start the month</strong> for an outlet below, or start every outlet at once on <a href="{% url 'month_close' %}">Month close</a>. Opening stock is copied from last month's closing count.</li>
     <li><strong>Upload the files</strong> on the audit's Dashboard: the POS item sales report (chef), the Xero supplier invoices and the closing stock count (procurement). Each upload has an empty template to download.</li>
@@ -16,39 +19,39 @@
   <p class="muted" style="margin-bottom:0">Words like COGS, yield and the menu classes are explained on <a href="{% url 'help' %}">Help</a>; dotted words show an explanation when you point at them.</p>
 </details>
 <div class="card">
-  <form method="post" class="inline">{% csrf_token %}
-    <strong>Start an audit</strong>
-    <label>Outlet {{ form.outlet }}</label>
-    <label>Month {{ form.period }}</label>
-    <label title="{{ form.tolerance_pct.help_text }}">Variance tolerance {{ form.tolerance_pct }} %</label>
+  <h2 class="card-title">{% icon "plus" 18 %} Start an audit</h2>
+  <form method="post" class="form-row">{% csrf_token %}
+    <label class="field"><span>Outlet</span>{{ form.outlet }}</label>
+    <label class="field"><span>Month</span>{{ form.period }}</label>
+    <label class="field" title="{{ form.tolerance_pct.help_text }}"><span>Variance tolerance (%)</span>{{ form.tolerance_pct }}</label>
     <button>Start</button>
   </form>
-  {% if form.errors %}<div class="msg error" style="margin-top:8px">
+  {% if form.errors %}<div class="msg error" style="margin:12px 0 0">{% icon "alert" %}<div class="msg-body">
     {% for e in form.non_field_errors %}{{ e }}{% if form.existing %} <a href="{% url 'audit_detail' form.existing.pk %}">Open it</a>{% endif %}<br>{% endfor %}
     {% for field in form %}{% for e in field.errors %}{{ field.label }}: {{ e }}<br>{% endfor %}{% endfor %}
-  </div>{% endif %}
-  <p class="muted" style="margin:8px 0 0">Opening stock is filled in from last month's closing count when there is one.</p>
+  </div></div>{% endif %}
+  <p class="note">Opening stock is filled in from last month's closing count when there is one.</p>
 </div>
-{% if brands %}<p>Menu costing: {% for b in brands %}<a href="{% url 'menu_costing' b.code %}">{{ b.code }}</a>{% if not forloop.last %} · {% endif %}{% endfor %}</p>{% endif %}
+{% if brands %}<div class="chips" style="margin:0 0 16px"><span class="muted">Menu costing:</span>{% for b in brands %}<a class="chip" href="{% url 'menu_costing' b.code %}">{{ b.code }}</a>{% endfor %}</div>{% endif %}
 <form method="get" class="toolbar">
   <select name="brand" aria-label="Brand"><option value="">All brands</option>{% for b in brands %}<option value="{{ b.code }}" {% if f.brand == b.code %}selected{% endif %}>{{ b.code }}</option>{% endfor %}</select>
   <select name="outlet" aria-label="Outlet"><option value="">All outlets</option>{% for o in outlets %}<option value="{{ o.pk }}" {% if f.outlet == o.pk|stringformat:"d" %}selected{% endif %}>{{ o }}</option>{% endfor %}</select>
   <input type="month" name="month" value="{{ f.month }}" aria-label="Month">
   <select name="signed" aria-label="Sign-off"><option value="">Signed off or not</option><option value="no" {% if f.signed == "no" %}selected{% endif %}>Not signed off</option><option value="yes" {% if f.signed == "yes" %}selected{% endif %}>Signed off</option></select>
   <button class="secondary">Filter</button>{% if query %} <a href="{% url 'home' %}">Clear</a>{% endif %}
-  <span class="muted">{{ page.paginator.count }} audit{{ page.paginator.count|pluralize }}</span>
+  <span class="muted count">{{ page.paginator.count }} audit{{ page.paginator.count|pluralize }}</span>
 </form>
 <div class="scroll">
 <table class="sortable">
-  <tr><th>Month</th><th>Brand</th><th>Outlet</th><th>Status</th><th>Sign-off</th></tr>
+  <thead><tr><th>Month</th><th>Brand</th><th>Outlet</th><th>Status</th><th>Sign-off</th></tr></thead><tbody>
   {% for r in rows %}{% with a=r.audit %}
-  <tr><td><a href="{% url 'audit_detail' a.pk %}">{{ a.period }}</a></td><td>{{ a.outlet.brand.code }}</td><td>{{ a.outlet.name }}</td>
+  <tr><td><a href="{% url 'audit_detail' a.pk %}"><strong>{{ a.period }}</strong></a></td><td>{{ a.outlet.brand.code }}</td><td>{{ a.outlet.name }}</td>
       <td><span class="pill {{ r.status.code }}" title="{{ r.status.reasons|join:'; ' }}">{{ r.status.label }}</span></td>
       <td>{% if a.locked %}<span class="pill LOCKED">Signed off</span>{% else %}<span class="muted">Not signed off</span>{% endif %}</td></tr>
   {% endwith %}{% empty %}
   <tr data-empty><td colspan="5" class="muted">{% if query %}No audits match these filters.{% else %}No audits yet. Pick an outlet and a month above and press Start.{% endif %}</td></tr>
   {% endfor %}
-</table>
+</tbody></table>
 </div>
 {% if page.has_other_pages %}<div class="pager">
   {% if page.has_previous %}<a href="?{{ query }}{% if query %}&{% endif %}page={{ page.previous_page_number }}">← Newer</a>{% endif %}

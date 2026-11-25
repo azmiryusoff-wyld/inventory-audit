@@ -1,7 +1,7 @@
-{% extends "audit/base.html" %}
+{% extends "audit/base.html" %}{% load audit_tags %}
 {% block content %}
 {% include "audit/_audit_head.html" %}
-<p class="muted">Every upload, line fix, sign-off and unlock for this month, newest first. Changes to recipes and menus are under <a href="{% url 'data_changes' %}">Menus &amp; recipes › Change log</a>.</p>
+<p class="lead">Every upload, line fix, sign-off and unlock for this month, newest first. Changes to recipes and menus are under <a href="{% url 'data_changes' %}">Menus &amp; recipes › Change log</a>.</p>
 <div class="scroll"><table>
   <tr><th>When</th><th>Who</th><th>What</th><th>Details</th></tr>
   {% for e in entries %}

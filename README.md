@@ -229,4 +229,12 @@ audit/signals.py       clears stored dashboards when data changes
 audit/login_guard.py   login lockout
 audit/management/      sync_item_master, import_workbook, setup_roles, load_demo
 audit/tests/           engine, importer, end-to-end, sign-off, upload-check and permission tests
+audit/templates/       the app's pages (Django templates); base.html holds the sidebar layout
+audit/static/audit/    app.css (the look: colours, type, spacing as variables at the top) and app.js
+                       (table sort/search/totals, phone menu, button spinners, small charts)
+templates/             the branded login and logged-out pages, and the admin's colours
 ```
+
+The look is plain CSS with no build step: change a colour once in the `:root` block of
+`audit/static/audit/app.css` and every page follows. Charts are drawn in the browser from numbers
+already on the page, so nothing on screen is calculated outside `engine.py` and `services.py`.

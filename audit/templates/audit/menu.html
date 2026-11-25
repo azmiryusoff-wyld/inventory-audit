@@ -6,16 +6,16 @@
   <div class="card kpi"><div class="label"><span class="pill {{ s.menu_class|cut:' ' }}">{{ s.menu_class }}</span> {{ s.items }} items</div><div class="value">{{ s.share|pct }}</div><div class="muted">of sales · {{ currency }} {{ s.sales|money }}</div></div>
 {% endfor %}
 </div>
-<p class="muted">Prices include SST, as on the POS. Within each menu category: high margin = above the category's average margin per item; popular = more than 70% of an equal share of units sold.</p>
-<div class="scroll" style="margin-bottom:14px"><table>
+<p class="lead" style="margin-top:4px">Prices include SST, as on the POS. Within each menu category: high margin = above the category's average margin per item; popular = more than 70% of an equal share of units sold.</p>
+<details class="card"><summary>{% icon "info" %} <strong>What the classes mean</strong></summary><div class="scroll"><table class="table-plain">
   <tr><th>Class</th><th>Means</th><th>What to do</th></tr>
   <tr><td><span class="pill STAR">STAR</span></td><td>Popular and high margin</td><td>Keep it as it is: visible on the menu, consistent portions.</td></tr>
   <tr><td><span class="pill PLOWHORSE">PLOWHORSE</span></td><td>Popular, low margin</td><td>Look at the recipe cost or portion, or a small price rise.</td></tr>
   <tr><td><span class="pill PUZZLE">PUZZLE</span></td><td>High margin, not popular</td><td>Promote it: menu position, staff recommendation, name or photo.</td></tr>
   <tr><td><span class="pill DOG">DOG</span></td><td>Not popular, low margin</td><td>Rework it or take it off the menu.</td></tr>
   <tr><td><span class="pill NORECIPE">NO RECIPE</span></td><td>Sold, but has no recipe, so its cost is unknown</td><td>Add a recipe (Menu and recipes). Until then it is left out of the category averages.</td></tr>
-</table></div>
-<div class="toolbar"><input type="search" placeholder="Search menu item" data-filter="menu-table" aria-label="Search"> <span id="menu-table-count" class="muted"></span></div>
+</table></div></details>
+<div class="toolbar"><input type="search" placeholder="Search menu item" data-filter="menu-table" aria-label="Search"> <span id="menu-table-count" class="muted count"></span></div>
 <div class="scroll"><table class="sortable" id="menu-table">
   <tr><th>Menu item</th><th>Category</th><th class="n">Price</th><th class="n">Cost</th><th class="n">Margin</th><th class="n">Units</th><th class="n">Contribution</th><th class="n">Margin %</th><th class="n">Mix %</th><th>Class</th></tr>
   {% for r in result.menu %}
