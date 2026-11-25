@@ -6,8 +6,8 @@
 {% for s in sales %}<tr><td>{{ s.pos_name }}</td><td>{% if s.menu_item %}{{ s.menu_item.sku }}{% else %}<span class="pill REVIEW">not on menu</span>{% endif %}</td><td class="n">{{ s.qty|num:0 }}</td></tr>{% endfor %}
 </table></div>
 <h2>Production, transfers, wastage ({{ production|length }})</h2>
-<div class="scroll"><table><tr><th>Type</th><th>SKU</th><th class="n">Qty</th><th>Customer / brand</th><th>Note</th></tr>
-{% for p in production %}<tr><td>{{ p.get_kind_display }}</td><td>{{ p.sku }}</td><td class="n">{{ p.qty|num }}</td><td>{{ p.customer }}</td><td>{{ p.note }}</td></tr>{% endfor %}
+<div class="scroll"><table><tr><th>Type</th><th>SKU</th><th class="n">Qty</th><th>Unit</th><th>Customer / brand</th><th>Note</th></tr>
+{% for p in production %}<tr><td>{{ p.get_kind_display }}</td><td>{{ p.sku }}</td><td class="n">{{ p.qty|num }}</td><td>{{ p.unit }}</td><td>{{ p.customer }}</td><td>{{ p.note }}</td></tr>{% endfor %}
 </table></div>
 <h2>Purchases ({{ purchases|length }})</h2>
 <div class="scroll"><table><tr><th>Date</th><th>Invoice</th><th>Source</th><th>SKU</th><th>Description</th><th class="n">Qty</th><th class="n">Value</th></tr>

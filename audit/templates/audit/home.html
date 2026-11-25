@@ -1,25 +1,30 @@
 {% extends "audit/base.html" %}
 {% block content %}
 <h1>Audits</h1>
-<p class="muted">One audit is one outlet for one month, the same as one copy of the old workbook.</p>
+<p class="muted">An audit is one outlet for one month. Start one, upload the month's five files, fix anything under Data checks, then sign it off.</p>
 <div class="card">
   <form method="post" class="inline">{% csrf_token %}
     <strong>Start an audit</strong>
-    {{ form.outlet }} {{ form.period }}
-    <label class="muted">Tolerance {{ form.variance_tolerance }}</label>
+    <label>Outlet {{ form.outlet }}</label>
+    <label>Month {{ form.period }}</label>
+    <label title="{{ form.tolerance_pct.help_text }}">Variance tolerance {{ form.tolerance_pct }} %</label>
     <button>Start</button>
   </form>
-  {% if form.errors %}<div class="msg error">{{ form.errors }}</div>{% endif %}
+  {% if form.errors %}<div class="msg error" style="margin-top:8px">
+    {% for e in form.non_field_errors %}{{ e }}{% if form.existing %} <a href="{% url 'audit_detail' form.existing.pk %}">Open it</a>{% endif %}<br>{% endfor %}
+    {% for field in form %}{% for e in field.errors %}{{ field.label }}: {{ e }}<br>{% endfor %}{% endfor %}
+  </div>{% endif %}
+  <p class="muted" style="margin:8px 0 0">Opening stock is filled in from last month's closing count when there is one.</p>
 </div>
 {% if brands %}<p>Menu costing: {% for b in brands %}<a href="{% url 'menu_costing' b.code %}">{{ b.code }}</a>{% if not forloop.last %} · {% endif %}{% endfor %}</p>{% endif %}
 <div class="scroll">
 <table>
-  <tr><th>Period</th><th>Brand</th><th>Outlet</th><th>Sign-off</th></tr>
+  <tr><th>Month</th><th>Brand</th><th>Outlet</th><th>Sign-off</th></tr>
   {% for a in audits %}
   <tr><td><a href="{% url 'audit_detail' a.pk %}">{{ a.period }}</a></td><td>{{ a.outlet.brand.code }}</td><td>{{ a.outlet.name }}</td>
       <td>{% if a.locked %}<span class="pill LOCKED">Signed off</span>{% if a.snapshot.status %} <span class="pill {{ a.snapshot.status.code }}">{{ a.snapshot.status.label }}</span>{% endif %}{% else %}<span class="muted">Not signed off</span>{% endif %}</td></tr>
   {% empty %}
-  <tr><td colspan="4" class="muted">No audits yet. Add a brand and outlets under Master data, then start one above.</td></tr>
+  <tr><td colspan="4" class="muted">No audits yet. Pick an outlet and a month above and press Start.</td></tr>
   {% endfor %}
 </table>
 </div>

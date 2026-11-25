@@ -277,6 +277,7 @@ class ConsumptionRow:
     cost_per_base: float
     theoretical_cost: float
     status: str  # OK / NO USAGE / USED - NO COST / CHECK YIELD
+    base_uom: str = ""
 
 
 @dataclass
@@ -350,6 +351,8 @@ class Check:
     count: int
     action: str
     details: list[str] = field(default_factory=list)
+    owner: str = ""  # who fixes it: Chef, Procurement or HQ (central item master)
+    impact: str = ""  # what it leaves out of the numbers, e.g. "RM 390.00 not counted"
 
     @property
     def passed(self) -> bool:
@@ -406,7 +409,10 @@ class EngineResult:
         act_fb = self.actual(FOOD_AND_BEVERAGE)
         sales = self.total_sales
         fb_rows = [r for r in self.variance if r.category == FOOD_AND_BEVERAGE]
-        top = sorted(fb_rows, key=lambda r: r.variance, reverse=True)[:10]
+        # Leakage (used more than the recipes say) and gains (used less) are listed apart:
+        # mixing them makes the shares meaningless.
+        top = sorted((r for r in fb_rows if r.variance > 0.005), key=lambda r: r.variance, reverse=True)[:10]
+        gains = sorted((r for r in fb_rows if r.variance < -0.005), key=lambda r: r.variance)[:5]
         total_fb_var = act_fb - theo_fb
         # Share of all positive (leakage) variance; dividing by the net variance, as the sheet does,
         # gives meaningless signs when other items are under-used.
@@ -430,6 +436,10 @@ class EngineResult:
                     "share": r.variance / leakage if leakage else None,
                 }
                 for r in top
+            ],
+            "leakage_total": leakage,
+            "top_gains": [
+                {"sku": r.sku, "name": r.name, "category": r.category, "variance": r.variance} for r in gains
             ],
         }
 
@@ -473,7 +483,8 @@ def _consumption(inp: EngineInput, net: dict[str, float]) -> list[ConsumptionRow
         else:
             status = "NO USAGE"
         rows.append(
-            ConsumptionRow(sku, item.name, item.category, n, y, gross, item.cost_per_base, theo, status)
+            ConsumptionRow(sku, item.name, item.category, n, y, gross, item.cost_per_base, theo, status,
+                           item.base_uom)
         )
     return rows
 
@@ -565,29 +576,30 @@ def _checks(
     )
     return [
         Check("unmapped", "Unmapped recipe components", len(unmapped),
-              "Fix the component so it matches an item or semi-finished SKU.", unmapped),
+              "Fix the component so it matches an item or semi-finished SKU.", unmapped, "Chef"),
         Check("qty", "Recipe lines missing / zero qty", len(bad_qty),
-              "Enter a positive quantity (and batch yield) on the flagged recipe line.", bad_qty),
+              "Enter a positive quantity (and batch yield) on the flagged recipe line.", bad_qty, "Chef"),
         Check("no_cost", "Items used but not costed",
               sum(r.status == "USED - NO COST" for r in consumption),
               "Enter purchase price and pack size for the item in the item master.",
-              [r.sku for r in consumption if r.status == "USED - NO COST"]),
+              [r.sku for r in consumption if r.status == "USED - NO COST"], "HQ (central item master)"),
         Check("yield", "Items with invalid yield",
               sum(r.status == "CHECK YIELD" for r in consumption),
               "Set yield between 0% and 100% in the item master.",
-              [r.sku for r in consumption if r.status == "CHECK YIELD"]),
+              [r.sku for r in consumption if r.status == "CHECK YIELD"], "HQ (central item master)"),
         Check("no_recipe", "Menu items sold with no recipe", len(no_recipe),
-              "Add a recipe for the sold menu item, otherwise its cost is zero.", sorted(no_recipe)),
+              "Add a recipe for the sold menu item, otherwise its cost is zero.", sorted(no_recipe), "Chef",
+              f"{sum(inp.demand[s] for s in no_recipe):,.0f} units costed at zero" if no_recipe else ""),
         Check("depth", "Recipe loops or nesting too deep", len(depth),
-              "A recipe contains itself somewhere down the chain, or nests deeper than the limit.", depth),
+              "A recipe contains itself somewhere down the chain, or nests deeper than the limit.", depth, "Chef"),
         Check("subs", "Invalid substitution mappings",
               sum(st.startswith("ERROR") for _, st in sub_status),
               "Each original SKU must map to one valid substitute; no reverse or chain mappings.",
-              [f"{s.original_sku} -> {s.substitute_sku}: {st}" for s, st in sub_status if st != "ACTIVE"]),
+              [f"{s.original_sku} -> {s.substitute_sku}: {st}" for s, st in sub_status if st != "ACTIVE"], "Chef"),
         Check("category", "Items with an unknown category", len(odd_category),
               "Set the item's category in the central item master to one of: "
               + ", ".join(inp.categories) + ". Until then it is not counted in Food & Beverage.",
-              odd_category),
+              odd_category, "HQ (central item master)"),
     ]
 
 
