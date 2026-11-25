@@ -10,6 +10,7 @@ urlpatterns = [
     path("audit/<int:pk>/consumption/", views.audit_detail, {"tab": "consumption"}, name="audit_consumption"),
     path("audit/<int:pk>/inputs/", views.audit_detail, {"tab": "inputs"}, name="audit_inputs"),
     path("audit/<int:pk>/upload/<str:kind>/", views.upload, name="audit_upload"),
+    path("templates/<str:kind>.csv", views.upload_template, name="upload_template"),
     path("audit/<int:pk>/export.xlsx", views.export_xlsx, name="audit_export"),
     path("brand/<str:brand_code>/menu-costing/", views.menu_costing, name="menu_costing"),
     path("trends/", views.trends, name="trends"),

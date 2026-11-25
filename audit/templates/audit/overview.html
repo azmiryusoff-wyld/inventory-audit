@@ -6,7 +6,8 @@
   <h2 style="margin-top:0">Monthly files</h2>
   <table>
   {% for key, info in uploads.items %}
-    <tr><td><strong>{{ info.0 }}</strong><div class="muted">{{ info.1 }}</div></td>
+    <tr><td><strong>{{ info.0 }}</strong><div class="muted">{{ info.1 }}</div>
+          <div><a href="{% url 'upload_template' key %}">Download empty template (.csv)</a></div></td>
         <td class="n">{% for k, v in counts.items %}{% if k == key %}{{ v }} lines{% endif %}{% endfor %}</td>
         <td>{% if not audit.locked %}<form method="post" enctype="multipart/form-data" action="{% url 'audit_upload' audit.pk key %}" class="inline">{% csrf_token %}
           <input type="file" name="file" accept=".xlsx,.csv" required><button>Upload</button></form>{% endif %}</td></tr>

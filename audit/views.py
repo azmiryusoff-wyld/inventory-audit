@@ -3,7 +3,7 @@ from io import BytesIO
 from django import forms
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required, permission_required
-from django.http import HttpResponse
+from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 
@@ -28,6 +28,18 @@ UPLOADS = {
     "interco": ("Inter-company purchases", "Xero invoice export from sister companies"),
     "opening": ("Opening stock count", "Stock count form, last month's closing"),
     "closing": ("Closing stock count", "Stock count form, end of this month"),
+}
+
+# Header row of the empty CSV template offered beside each upload. Every column name here is one the
+# matching reader in importers.py looks for, so a filled-in template always imports.
+UPLOAD_TEMPLATES = {
+    "pos": ["Full Name", "Quantity"],
+    "purchases": ["InvoiceNumber", "InvoiceDate", "ContactName", "InventoryItemCode", "Description",
+                  "Quantity", "LineAmount"],
+    "interco": ["InvoiceNumber", "InvoiceDate", "ContactName", "InventoryItemCode", "Description",
+                "Quantity", "LineAmount"],
+    "opening": ["SKU", "Item Name", "Total RM Value"],
+    "closing": ["SKU", "Item Name", "Total RM Value"],
 }
 
 
@@ -109,6 +121,19 @@ def upload(request, pk, kind):
                     + (" ..." if len(report.warnings) > 8 else "")
                 )
     return redirect("audit_detail", pk)
+
+
+@login_required
+def upload_template(request, kind):
+    """An empty CSV with just the header row the importer expects."""
+    import csv
+
+    if kind not in UPLOAD_TEMPLATES:
+        raise Http404("No template for this file type.")
+    resp = HttpResponse(content_type="text/csv")
+    resp["Content-Disposition"] = f'attachment; filename="{kind}-template.csv"'
+    csv.writer(resp).writerow(UPLOAD_TEMPLATES[kind])
+    return resp
 
 
 @login_required

@@ -8,6 +8,8 @@ Each month, for each outlet:
 1. Start an audit (outlet + month).
 2. Upload the files you already export: POS item sales report, Xero invoices
    (supplier and inter-company), opening and closing stock count forms.
+   Each upload has a "Download empty template (.csv)" link with the exact column
+   headers, for when a file has to be typed up by hand instead of exported.
 3. Fix anything the data checks flag (unknown POS names, unknown SKUs, missing recipes...).
 4. Read the dashboard, variance and menu engineering reports, or download them as Excel.
 

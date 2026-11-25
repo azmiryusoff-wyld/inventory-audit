@@ -199,6 +199,33 @@ class FlowTests(TestCase):
         self.assertAlmostEqual(rows["M1"]["cost"], 1.8 + 0.8 + 0.05)
         self.assertAlmostEqual(rows["M1"]["cogs_pct"], 2.65 / (15 / 1.06))
 
+    def test_every_upload_has_a_template_that_imports(self):
+        from audit.views import UPLOAD_TEMPLATES, UPLOADS
+
+        self.assertEqual(set(UPLOAD_TEMPLATES), set(UPLOADS))
+        resp = self.client.get(reverse("audit_detail", args=[self.audit.pk]))
+        for kind in UPLOADS:
+            self.assertContains(resp, reverse("upload_template", args=[kind]))
+        sample = {
+            "pos": "Latte - Hot,2",
+            "purchases": "INV1,2026-10-01,Supplier,COFFEE,Beans,1,100",
+            "interco": "INV2,2026-10-02,Sister Co,MILK,Milk,2,8",
+            "opening": "COFFEE,Beans,RM10.00",
+            "closing": "COFFEE,Beans,RM5.00",
+        }
+        for kind, row in sample.items():
+            resp = self.client.get(reverse("upload_template", args=[kind]))
+            self.assertEqual(resp["Content-Type"], "text/csv")
+            header = resp.content.decode()
+            self.assertEqual(header.strip().count("\n"), 0)  # header only, no data rows
+            self.post_file(kind, f"{kind}.csv", header + row + "\n")
+        self.assertEqual(self.audit.sales.get().qty, 2)
+        self.assertEqual(self.audit.purchases.filter(source="supplier").get().value, 100)
+        self.assertEqual(self.audit.purchases.filter(source="interco").get().value, 8)
+        self.assertEqual(self.audit.stock_counts.get(kind="opening").value, 10)
+        self.assertEqual(self.audit.stock_counts.get(kind="closing").value, 5)
+        self.assertEqual(self.client.get("/templates/nope.csv").status_code, 404)
+
     def test_login_required_and_permissions(self):
         self.client.logout()
         self.assertEqual(self.client.get(reverse("home")).status_code, 302)
