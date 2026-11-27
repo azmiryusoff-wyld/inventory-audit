@@ -86,6 +86,14 @@ Every screen, Trends and the Excel export show the same status:
   differs from last month's closing.
 * **Stock counts** can be entered as money (Total RM Value) or as packs counted (Counted Qty
   (packs), RM value left blank): packs are valued at the item master's price per pack.
+  Semi-finished items made in-house (sauces, doughs, syrups) are counted by weight in
+  "Semi-finished Qty", in the unit their recipe makes. The count is broken down through the recipe
+  (batch yield, nested semi-finished items, substitutions) into the supplier items it was made from,
+  valued like consumption (net / yield x cost per base unit), and added to those items' opening or
+  closing stock. The variance screen shows how much of each item's stock came from semi-finished items.
+* **A semi-finished item must have a recipe and a batch yield.** A new one is saved together with its
+  recipe; its recipe can't be deleted or moved to another item; the workbook import refuses
+  semi-finished items without one; and a data check flags any left over from before.
 * **Data checks** say who fixes each one (Chef, Procurement or HQ for the central item master) and
   what it leaves out of the numbers, e.g. "RM 390.00 not counted in actual COGS". The chef can link
   a POS name that isn't on the menu to a menu item right there (it is saved as a POS alias);

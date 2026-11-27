@@ -33,7 +33,7 @@
     <td class="n">{% if r.cost is not None %}{{ r.cost|num:4 }}{% else %}-{% endif %}</td><td class="n">{% if r.total is not None %}{{ r.total|num:2 }}{% else %}-{% endif %}</td></tr>{% endfor %}
 </table></div>
 {% endif %}
-{% if recipe.pk and perms.audit.delete_recipe %}
+{% if recipe.pk and perms.audit.delete_recipe and not recipe.semi_finished_id %}
 <form method="post" action="{% url 'data_recipe_delete' brand.code recipe.pk %}" style="margin-top:14px" onsubmit="return confirm('Delete this recipe? The menu item will then cost nothing until it has a recipe again.')">{% csrf_token %}
   <button class="danger">Delete recipe</button></form>
 {% endif %}

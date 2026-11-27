@@ -368,22 +368,43 @@ class PurchaseLine(models.Model):
 
 
 class StockCount(models.Model):
-    """13 Opening / 14 Closing Inventory."""
+    """13 Opening / 14 Closing Inventory.
+
+    A line is either a supplier item, counted by RM value, or a semi-finished item made in-house,
+    counted by weight (qty, in the unit its recipe makes). A semi-finished line has no value of its
+    own: the engine breaks it down through its recipe into the items it was made from.
+    """
 
     KIND_CHOICES = [("opening", "Opening"), ("closing", "Closing")]
     audit = models.ForeignKey(AuditPeriod, on_delete=models.CASCADE, related_name="stock_counts")
     kind = models.CharField(max_length=10, choices=KIND_CHOICES)
     sku = models.CharField(max_length=40)
     item = models.ForeignKey(Item, null=True, blank=True, on_delete=models.PROTECT)
+    semi_finished = models.ForeignKey(
+        SemiFinished, null=True, blank=True, on_delete=models.PROTECT, related_name="stock_counts"
+    )
     description = models.CharField(max_length=300, blank=True)
     value = money()
+    qty = quantity(help_text="Semi-finished items only: the weight or amount counted, in the unit its recipe makes")
 
     @property
     def qty_base(self):
-        """Quantity in base units, back-calculated as the sheet does: value / cost per base."""
+        """Quantity in base units: counted for a semi-finished item, else value / cost per base as the sheet does."""
+        if self.semi_finished_id:
+            return self.qty
         if not self.item or not self.item.cost_per_base:
             return Decimal("0")
         return self.value / self.item.cost_per_base
+
+    @property
+    def unit(self):
+        if self.semi_finished_id:
+            return self.semi_finished.output_uom
+        return self.item.base_uom if self.item else ""
+
+    @property
+    def known(self):
+        return bool(self.item_id or self.semi_finished_id)
 
 
 class UserAccess(models.Model):

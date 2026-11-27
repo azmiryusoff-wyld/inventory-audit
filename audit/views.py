@@ -1,4 +1,5 @@
 from io import BytesIO
+from decimal import Decimal
 
 from django import forms
 from django.contrib import messages
@@ -94,8 +95,10 @@ UPLOAD_EXAMPLES = {
     "pos": "Latte - Hot, 120",
     "purchases": "INV-1102, 05/10/2026, Ladang Segar Sdn Bhd, MILK-1L, Fresh milk 1L, 24, 168.00",
     "interco": "PB-0042, 07/10/2026, Pastry Boys, PBCK-CROI, Croissant, 50, 250.00",
-    "opening": "MILK-1L, Fresh milk 1L, 12 (packs counted), leave the RM value blank to use the item master price",
-    "closing": "MILK-1L, Fresh milk 1L, 12 (packs counted), leave the RM value blank to use the item master price",
+    "opening": "MILK-1L, Fresh milk 1L, 12 (packs counted), leave the RM value blank to use the item master price. "
+               "Made in-house: SF-CARAMEL, Caramel sauce, 1200 in Semi-finished Qty (grams, by weight), packs and RM blank",
+    "closing": "MILK-1L, Fresh milk 1L, 12 (packs counted), leave the RM value blank to use the item master price. "
+               "Made in-house: SF-CARAMEL, Caramel sauce, 1200 in Semi-finished Qty (grams, by weight), packs and RM blank",
 }
 
 # Header row of the empty CSV template offered beside each upload. Every column name here is one the
@@ -106,8 +109,8 @@ UPLOAD_TEMPLATES = {
                   "Quantity", "LineAmount"],
     "interco": ["InvoiceNumber", "InvoiceDate", "ContactName", "InventoryItemCode", "Description",
                 "Quantity", "LineAmount"],
-    "opening": ["SKU", "Item Name", "Counted Qty (packs)", "Total RM Value"],
-    "closing": ["SKU", "Item Name", "Counted Qty (packs)", "Total RM Value"],
+    "opening": ["SKU", "Item Name", "Counted Qty (packs)", "Total RM Value", "Semi-finished Qty"],
+    "closing": ["SKU", "Item Name", "Counted Qty (packs)", "Total RM Value", "Semi-finished Qty"],
 }
 
 
@@ -197,13 +200,18 @@ def audit_detail(request, pk, tab="overview"):
     if tab == "inputs":
         ctx["sales"] = audit.sales.select_related("menu_item").order_by("pos_name")
         ctx["purchases"] = audit.purchases.select_related("item").order_by("invoice_date", "invoice_number")
-        ctx["counts_rows"] = audit.stock_counts.select_related("item").order_by("kind", "sku")
+        ctx["counts_rows"] = list(audit.stock_counts.select_related("item", "semi_finished").order_by("kind", "sku"))
+        # A semi-finished line's value: its counted weight at today's recipe cost (what it adds to its ingredients).
+        sf_values = {(r["kind"], r["sku"]): r["value"] for r in ctx["result"].sf_stock}
+        for c in ctx["counts_rows"]:
+            c.sf_value = sf_values.get((c.kind, c.sku), 0.0)
         ctx["production"] = audit.production.select_related("menu_item", "semi_finished", "item")
     elif tab == "variance":
         rows = result_rows = ctx["result"].variance
         ctx["variance_totals"] = {
             k: sum(getattr(r, k) for r in result_rows)
-            for k in ("theoretical_cost", "opening", "purchases", "closing", "actual_cost", "variance")
+            for k in ("theoretical_cost", "opening", "purchases", "closing", "actual_cost", "variance",
+                      "opening_sf", "closing_sf")
         }
         ctx["categories"] = sorted({r.category for r in rows})
     elif tab == "history":
@@ -254,6 +262,9 @@ def upload(request, pk, kind):
                        if report.skipped else "")
             valued = (f", {report.valued_from_packs} valued from counted packs at item master prices"
                       if report.valued_from_packs else "")
+            if report.sf_lines:
+                valued += (f", {report.sf_lines} semi-finished item{'s' if report.sf_lines > 1 else ''} counted by "
+                           "weight and broken down into their ingredients")
             note = f" {report.note}." if report.note else ""
             messages.success(request, f"{label}: {n} line{'s' if n != 1 else ''} loaded{skipped}{valued}.{note}")
             history.log(request.user, "upload", label, getattr(f, "name", ""), audit,
@@ -516,10 +527,12 @@ def export_xlsx(request, pk):
     finish(ws, header_row=ws.max_row - len(dash["by_category"]))
 
     sheet("Variance", ["SKU", "Item", "Category", "Has recipe", "Theoretical", "Opening", "Purchases",
-                       "Closing", "Actual", "Variance", "Variance %", "Variance qty", "Unit"],
-          [None, None, None, None, MONEY, MONEY, MONEY, MONEY, MONEY, MONEY, PCT, QTY],
+                       "Closing", "Actual", "Variance", "Variance %", "Variance qty", "Unit",
+                       "Opening: in semi-finished", "Closing: in semi-finished"],
+          [None, None, None, None, MONEY, MONEY, MONEY, MONEY, MONEY, MONEY, PCT, QTY, None, MONEY, MONEY],
           [[r.sku, r.name, r.category, "Yes" if r.has_recipe else "No", r.theoretical_cost, r.opening,
-            r.purchases, r.closing, r.actual_cost, r.variance, r.variance_pct, r.variance_qty, r.base_uom]
+            r.purchases, r.closing, r.actual_cost, r.variance, r.variance_pct, r.variance_qty, r.base_uom,
+            r.opening_sf, r.closing_sf]
            for r in result.variance])
     sheet("Top leakage", ["SKU", "Item", "Leakage", "Share of F&B leakage"], [None, None, MONEY, PCT],
           [[r["sku"], r["name"], r["variance"], r["share"]] for r in dash["top_leakage"]])
@@ -542,9 +555,13 @@ def export_xlsx(request, pk):
           [None, None, None, None, None, None, QTY, MONEY],
           [[p.invoice_date.strftime("%d/%m/%Y") if p.invoice_date else "", p.invoice_number, p.get_source_display(),
             p.supplier, p.sku, p.description, float(p.qty), float(p.value)] for p in purchases])
-    sheet("Stock counts", ["Count", "SKU", "Description", "Value"], [None, None, None, MONEY],
-          [[c.get_kind_display(), c.sku, c.description, float(c.value)]
-           for c in audit.stock_counts.order_by("kind", "sku")])
+    sf_values = {(r["kind"], r["sku"]): r["value"] for r in result.sf_stock}
+    sheet("Stock counts", ["Count", "SKU", "Description", "Value", "Semi-finished qty", "Unit"],
+          [None, None, None, MONEY, QTY],
+          [[c.get_kind_display(), c.sku, c.description,
+            sf_values.get((c.kind, c.sku), 0.0) if c.semi_finished_id else float(c.value),
+            float(c.qty) if c.semi_finished_id else None, c.unit if c.semi_finished_id else ""]
+           for c in audit.stock_counts.select_related("item", "semi_finished").order_by("kind", "sku")])
 
     buf = BytesIO()
     wb.save(buf)
@@ -611,21 +628,59 @@ class PurchaseLineForm(forms.ModelForm):
 class StockCountForm(forms.ModelForm):
     class Meta:
         model = StockCount
-        fields = ["kind", "sku", "description", "value"]
-        labels = {"kind": "Count", "sku": "SKU", "value": "Total RM value"}
+        fields = ["kind", "sku", "description", "value", "qty"]
+        labels = {"kind": "Count", "sku": "SKU", "value": "Total RM value", "qty": "Semi-finished qty"}
 
     def __init__(self, *a, audit, **kw):
         super().__init__(*a, **kw)
+        self.audit = audit
         self.fields["sku"].widget.attrs["list"] = "item-skus"
+        self.fields["sku"].help_text = "An item master SKU, or a semi-finished SKU of this brand."
+        self.fields["value"].required = False
+        self.fields["value"].help_text = "Supplier items: the RM value counted. Leave empty for a semi-finished item."
+        self.fields["qty"].required = False
+        self.fields["qty"].help_text = ("Semi-finished items only: the weight counted, in the unit its recipe makes "
+                                        "(g, ml, pcs). It is broken down into its ingredients through the recipe.")
 
     def clean_sku(self):
-        self.item = _find_sku(self.cleaned_data["sku"])
+        sku = self.cleaned_data["sku"].strip()
+        self.sf = SemiFinished.objects.filter(brand=self.audit.brand, sku__iexact=sku).select_related("recipe").first()
+        if self.sf is not None:
+            if not hasattr(self.sf, "recipe"):
+                raise forms.ValidationError(f"{self.sf.sku} has no recipe. Every semi-finished item needs a recipe "
+                                            "and batch yield before it can be counted.")
+            self.item = None
+            return self.sf.sku
+        self.item = _find_sku(sku)
         return self.item.sku
+
+    def clean(self):
+        data = super().clean()
+        if "sku" in self.errors:
+            return data
+        value, qty = data.get("value"), data.get("qty")
+        if any(x is not None and x < 0 for x in (value, qty)):
+            raise forms.ValidationError("A stock count can't be negative.")
+        if self.sf is not None:
+            if qty is None:
+                self.add_error("qty", f"{self.sf.sku} is made in-house: enter the weight counted "
+                                      f"({self.sf.output_uom or 'in the unit its recipe makes'}).")
+            elif value:
+                self.add_error("value", "Leave the RM value empty: a semi-finished item is valued from its recipe.")
+            data["value"] = Decimal("0")
+        else:
+            if value is None:
+                self.add_error("value", "Enter the RM value counted (0 if none is left).")
+            elif qty:
+                self.add_error("qty", f"{self.item.sku} is a supplier item: count it by RM value, not semi-finished qty.")
+            data["qty"] = Decimal("0")
+        return data
 
     def save(self, commit=True):
         self.instance.item = self.item
+        self.instance.semi_finished = self.sf
         if not self.instance.description:
-            self.instance.description = self.item.name
+            self.instance.description = (self.sf or self.item).name
         return super().save(commit)
 
 
@@ -677,7 +732,7 @@ LINE_FORMS = {
     "sale": (SaleLineForm, "POS sales line", ["pos_name", "menu_item", "qty"]),
     "purchase": (PurchaseLineForm, "Purchase line",
                  ["source", "invoice_date", "invoice_number", "supplier", "sku", "description", "qty", "value"]),
-    "count": (StockCountForm, "Stock count line", ["kind", "sku", "description", "value"]),
+    "count": (StockCountForm, "Stock count line", ["kind", "sku", "description", "value", "qty"]),
     "production": (ProductionLineForm, "Production / wastage line", ["kind", "sku", "qty", "customer", "note"]),
 }
 
@@ -732,7 +787,10 @@ def line_edit(request, pk, kind, line_pk=None):
         return redirect(back)
     ctx = {"audit": audit, "form": form, "label": label, "line": line, "kind": kind, "back": back}
     if kind in ("purchase", "count", "production"):
-        ctx["item_skus"] = Item.objects.filter(active=True).values_list("sku", "name")
+        ctx["item_skus"] = list(Item.objects.filter(active=True).values_list("sku", "name"))
+    if kind == "count":
+        ctx["item_skus"] = list(SemiFinished.objects.filter(brand=audit.brand, active=True)
+                                .values_list("sku", "name")) + ctx["item_skus"]
     if kind == "production":
         ctx["brand_skus"] = list(MenuItem.objects.filter(brand=audit.brand).values_list("sku", "name")) + list(
             SemiFinished.objects.filter(brand=audit.brand).values_list("sku", "name"))

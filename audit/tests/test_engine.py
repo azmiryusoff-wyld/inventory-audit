@@ -155,7 +155,7 @@ class CheckTests(SimpleTestCase):
                             demand={"X": 1, "COOKIE": 4}, sold={"X": 1, "COOKIE": 4}))
         counts = {c.key: c.count for c in result.checks}
         self.assertEqual(counts, {"unmapped": 1, "qty": 1, "no_cost": 1, "yield": 1,
-                                  "no_recipe": 1, "depth": 0, "subs": 0, "category": 0})
+                                  "no_recipe": 1, "sf_no_recipe": 0, "depth": 0, "subs": 0, "category": 0})
         self.assertEqual(result.status, "REVIEW")
         self.assertEqual(e.run(make()).status, "PASS")
 
@@ -205,3 +205,55 @@ class LeakageShareTests(SimpleTestCase):
         # Under-use is a gain, listed apart, not a negative share of leakage.
         self.assertNotIn("MILK", shares)
         self.assertEqual([g["sku"] for g in dash["top_gains"]], ["MILK"])
+
+
+class SemiFinishedStockTests(SimpleTestCase):
+    """Semi-finished stock in the fridge is broken down into the items it was made from."""
+
+    def nested(self, **kw):
+        # Caramel latte base: 1,000 g batch = 400 g SYRUP + 600 ml MILK; SYRUP = 500 g sugar per 1,000 g.
+        recipes = dict(RECIPES, BASE=e.Recipe("BASE", 1000, (e.RecipeLine("SYRUP", 400), e.RecipeLine("MILK", 600))))
+        return make(recipes=recipes, semi_finished={"SYRUP", "BASE"}, **kw)
+
+    def test_closing_sf_adds_ingredient_value(self):
+        # 2,000 g of syrup = 1,000 g sugar at 0.005 = RM 5.00 of sugar still in stock.
+        result = e.run(make(closing_sf_qty={"SYRUP": 2000}, purchases_value={"SUGAR": 10.0}))
+        row = {r.sku: r for r in result.variance}["SUGAR"]
+        self.assertAlmostEqual(row.closing_sf, 5.0)
+        self.assertAlmostEqual(row.closing, 5.0)
+        self.assertAlmostEqual(row.actual_cost, 10.0 - 5.0)
+
+    def test_item_count_and_sf_count_add_up(self):
+        result = e.run(make(closing_value={"SUGAR": 3.0}, closing_sf_qty={"SYRUP": 2000},
+                            opening_value={"SUGAR": 1.0}, opening_sf_qty={"SYRUP": 1000}))
+        row = {r.sku: r for r in result.variance}["SUGAR"]
+        self.assertAlmostEqual(row.opening, 1.0 + 2.5)
+        self.assertAlmostEqual(row.opening_sf, 2.5)
+        self.assertAlmostEqual(row.closing, 3.0 + 5.0)
+
+    def test_nested_sf_and_item_yield(self):
+        # 500 g BASE = 200 g SYRUP (100 g sugar) + 300 ml milk; milk yields 90 % so 300 / 0.9 ml gross.
+        result = e.run(self.nested(closing_sf_qty={"BASE": 500}))
+        rows = {r.sku: r for r in result.variance}
+        self.assertAlmostEqual(rows["SUGAR"].closing_sf, 100 * 0.005)
+        self.assertAlmostEqual(rows["MILK"].closing_sf, 300 / 0.9 * 0.01)
+        # The SF line's own value is the same total, at its unit cost.
+        sf = result.sf_stock[0]
+        self.assertEqual((sf["kind"], sf["sku"], sf["qty"]), ("closing", "BASE", 500))
+        self.assertAlmostEqual(sf["value"], 100 * 0.005 + 300 / 0.9 * 0.01)
+
+    def test_substitution_applies_to_sf_stock(self):
+        subs = [e.Substitution("MILK", "OAT", 1.0)]
+        result = e.run(self.nested(closing_sf_qty={"BASE": 500}, substitutions=subs))
+        rows = {r.sku: r for r in result.variance}
+        self.assertNotIn("MILK", rows)
+        self.assertAlmostEqual(rows["OAT"].closing_sf, 300 * 0.02)
+
+    def test_sf_stock_does_not_change_theoretical(self):
+        self.assertAlmostEqual(e.run(make(closing_sf_qty={"SYRUP": 2000})).theoretical(), e.run(make()).theoretical())
+
+    def test_sf_without_recipe_is_flagged(self):
+        recipes = {k: v for k, v in RECIPES.items() if k != "SYRUP"}
+        result = e.run(make(recipes=recipes, closing_sf_qty={"SYRUP": 100}))
+        check = {c.key: c for c in result.checks}["sf_no_recipe"]
+        self.assertEqual(check.details, ["SYRUP"])

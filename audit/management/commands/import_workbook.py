@@ -21,7 +21,11 @@ class Command(BaseCommand):
         b, created = Brand.objects.get_or_create(code=brand, defaults={"name": name or brand})
         if created:
             self.stdout.write(f"Created brand {b.code}")
-        for part, report in load_workbook_masters(b, file).items():
+        try:
+            reports = load_workbook_masters(b, file)
+        except ValueError as exc:
+            raise CommandError(str(exc))
+        for part, report in reports.items():
             self.stdout.write(self.style.SUCCESS(f"{part}: {report}"))
             for w in report.warnings[:50]:
                 self.stdout.write(f"  ! {w}")

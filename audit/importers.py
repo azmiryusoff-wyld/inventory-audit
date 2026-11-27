@@ -376,18 +376,23 @@ def read_xero_invoices(file) -> list[dict]:
     return out
 
 
+SF_QTY_HEADERS = ("semi-finished qty", "semi finished qty", "sf qty")
+
+
 def read_stock_count(file) -> list[dict]:
-    """Outlet stock count form -> [{'sku', 'description', 'value', 'packs'}].
+    """Outlet stock count form -> [{'sku', 'description', 'value', 'packs', 'sf_qty'}].
 
     A counted line needs a value (0 if nothing is left), or a 'Counted Qty (packs)' with the value
-    left blank, in which case the loader values it at the item master's price per pack. A blank or
-    negative count stops the upload. Lines with a value but no SKU come back with sku "" so the
-    loader can report them.
+    left blank, in which case the loader values it at the item master's price per pack. A semi-finished
+    item made in-house (caramel sauce, cookie dough) is counted by weight in 'Semi-finished Qty', in the
+    unit its recipe makes, with the value left blank. A blank or negative count stops the upload. Lines
+    with a value but no SKU come back with sku "" so the loader can report them.
     """
     rows = read_rows(file)
     _wrong_file(rows, allowed={"total rm value"})
     start, cols = find_header(rows, ["SKU", "Total RM Value"])
     qty_col = next((name for name in cols if name.startswith("counted qty")), None)
+    sf_col = next((name for name in cols if name.startswith(SF_QTY_HEADERS)), None)
     out, errors = [], []
     for i, r in enumerate(rows[start + 1:], start=start + 2):
         sku = clean(cell(r, cols, "SKU"))
@@ -404,17 +409,28 @@ def read_stock_count(file) -> list[dict]:
         except ValueError as exc:
             errors.append(f"Row {i}: Counted Qty {exc} ({label})")
             continue
+        try:
+            sf_qty = parse_number(cell(r, cols, sf_col)) if sf_col else None
+        except ValueError as exc:
+            errors.append(f"Row {i}: Semi-finished Qty {exc} ({label})")
+            continue
         if not sku:
             if value:
-                out.append({"sku": "", "description": description, "value": value, "packs": None})
+                out.append({"sku": "", "description": description, "value": value, "packs": None, "sf_qty": None})
             continue
-        if value is None and packs is None:
-            errors.append(f"Row {i}: Total RM Value is blank ({label}). Enter 0 if none is left")
-        elif (value is not None and value < 0) or (packs is not None and packs < 0):
+        if any(x is not None and x < 0 for x in (value, packs, sf_qty)):
             errors.append(f"Row {i}: a stock count can't be negative ({label})")
+        elif sf_qty is not None:
+            if value or packs:
+                errors.append(f"Row {i}: fill in either Semi-finished Qty (for an item made in-house) or the "
+                              f"packs / RM value (for a supplier item), not both ({label})")
+            else:
+                out.append({"sku": sku, "description": description, "value": None, "packs": None, "sf_qty": sf_qty})
+        elif value is None and packs is None:
+            errors.append(f"Row {i}: Total RM Value is blank ({label}). Enter 0 if none is left")
         else:
             out.append({"sku": sku, "description": description, "value": value,
-                        "packs": packs if value is None else None})
+                        "packs": packs if value is None else None, "sf_qty": None})
     if errors:
         raise RowErrors(errors)
     return out
@@ -485,6 +501,7 @@ class ImportReport:
     skipped: int = 0
     warnings: list[str] = field(default_factory=list)
     valued_from_packs: int = 0
+    sf_lines: int = 0  # semi-finished items counted by weight
     note: str = ""  # e.g. which POS report column was read
 
     def __str__(self):
@@ -714,6 +731,24 @@ def load_stock_count(audit, file, kind, replace=True) -> ImportReport:
     for sku, n in Counter(r["sku"] for r in keep).items():
         if n > 1:
             report.warnings.append(f"{sku} is on {n} rows; their values were added together")
+    from .models import SemiFinished
+
+    # Semi-finished items are matched first: a few central item master rows repeat an SF SKU, and an
+    # SF's stock is what it was made from, so it is broken down through its recipe, never valued as an item.
+    sfs = {norm(s.sku): s for s in SemiFinished.objects.filter(brand=audit.brand).select_related("recipe")}
+    errors = []
+    for row in keep:
+        sf = sfs.get(norm(row["sku"]))
+        if sf is not None and row["sf_qty"] is None:
+            errors.append(f"{row['sku']} is a semi-finished item made in-house: enter the weight counted in "
+                          f"Semi-finished Qty ({sf.output_uom or 'the unit its recipe makes'}), not packs or RM")
+        elif sf is None and row["sf_qty"] is not None:
+            errors.append(f"{row['sku']} has a Semi-finished Qty but isn't a {audit.brand} semi-finished item")
+        elif sf is not None and not hasattr(sf, "recipe"):
+            errors.append(f"{row['sku']} has no recipe. Every semi-finished item needs a recipe and batch yield "
+                          "before it can be counted")
+    if errors:
+        raise RowErrors(errors)
     with transaction.atomic():
         audit = _lock_open_audit(audit)
         if replace:
@@ -723,6 +758,13 @@ def load_stock_count(audit, file, kind, replace=True) -> ImportReport:
         for row in keep:
             row = dict(row)
             packs = row.pop("packs", None)
+            sf_qty = row.pop("sf_qty", None)
+            sf = sfs.get(norm(row["sku"]))
+            if sf is not None:
+                lines.append(StockCount(audit=audit, kind=kind, semi_finished=sf, sku=sf.sku,
+                                        description=row["description"] or sf.name, value=Decimal("0"), qty=sf_qty))
+                report.sf_lines += 1
+                continue
             item = items.get(norm(row["sku"]))
             if item is not None:
                 row["sku"] = item.sku
@@ -815,6 +857,7 @@ def load_workbook_masters(brand, file) -> dict[str, ImportReport]:
         _, cols = find_header(rows, ["Parent Name", "Component Name"])
         Recipe.objects.filter(brand=brand).delete()
         recipes: dict[str, Recipe] = {}
+        no_yield: set[str] = set()
         for r in rows[1:]:
             p_sku, p_name = clean(cell(r, cols, "Parent SKU")), clean(cell(r, cols, "Parent Name"))
             c_sku, c_name = clean(cell(r, cols, "Component SKU")), clean(cell(r, cols, "Component Name"))
@@ -834,13 +877,29 @@ def load_workbook_masters(brand, file) -> dict[str, ImportReport]:
                 continue
             key = (menu or sf).sku
             if key not in recipes:
-                batch = to_decimal(cell(r, cols, "Parent Batch Yield Qty"), default=Decimal("1")) or Decimal("1")
-                recipes[key] = Recipe.objects.create(brand=brand, menu_item=menu, semi_finished=sf, batch_yield=batch)
+                batch = to_decimal(cell(r, cols, "Parent Batch Yield Qty"), default=None)
+                if sf is not None and (batch is None or batch <= 0):
+                    # A semi-finished item's batch yield is mandatory: guessing 1 would cost a 1 kg batch
+                    # as if it made one gram. Collected and refused below.
+                    no_yield.add(sf.sku)
+                    continue
+                recipes[key] = Recipe.objects.create(brand=brand, menu_item=menu, semi_finished=sf,
+                                                     batch_yield=batch if batch and batch > 0 else Decimal("1"))
             RecipeLine.objects.create(
                 recipe=recipes[key], item=comp_item, semi_finished=comp_sf,
                 qty_per_batch=to_decimal(cell(r, cols, "Component Qty (per batch)")),
             )
             rep.created += 1
+        no_recipe = sorted(s.sku for s in SemiFinished.objects.filter(brand=brand, recipe__isnull=True)
+                           if s.sku not in no_yield)
+        problems = ([f"{sku}: no batch yield" for sku in sorted(no_yield)]
+                    + [f"{sku}: no recipe lines" for sku in no_recipe])
+        if problems:
+            # Every semi-finished item must have a recipe and a batch yield. Nothing is imported until the
+            # workbook is fixed (the whole import is one transaction).
+            raise ValueError(
+                "Every semi-finished item needs a recipe and a batch yield in 22 Recipe Master. Nothing was "
+                f"imported. Fix these {len(problems)} in the workbook and import again: " + "; ".join(problems))
 
     rows = tab("15 Substitutions")
     if rows:

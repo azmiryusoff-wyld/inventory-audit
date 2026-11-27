@@ -4,6 +4,8 @@
 <p class="lead">Actual = opening + purchases − closing. Positive variance means more was used than the recipes predict.
   Red: used more than the recipes say by over the {{ audit.variance_tolerance|pct }} tolerance. Amber: used less by over the tolerance (often a missing count or purchase).
   Variance qty is the variance in the item's own unit (g, ml, pcs) at today's cost per unit. Click a heading to sort.</p>
+{% if variance_totals.opening_sf or variance_totals.closing_sf %}<p class="muted">Opening and closing include supplier items held inside counted semi-finished stock (sauces, doughs, syrups), broken down through their recipes:
+  {{ currency }} {{ variance_totals.opening_sf|money }} at opening and {{ currency }} {{ variance_totals.closing_sf|money }} at closing. The part of each figure that came from semi-finished stock is shown under it.</p>{% endif %}
 <div class="toolbar">
   <input type="search" placeholder="Search SKU or item" data-filter="variance-table" data-filter-select="variance-cat" aria-label="Search">
   <select id="variance-cat" aria-label="Category"><option value="">All categories</option>{% for c in categories %}<option>{{ c }}</option>{% endfor %}</select>
@@ -14,7 +16,7 @@
   <tbody>
   {% for r in result.variance %}
   <tr data-group="{{ r.category }}"><td><a href="{% url 'data_item' r.sku %}">{{ r.sku }}</a></td><td>{{ r.name }}</td><td>{{ r.category }}</td><td>{{ r.has_recipe|yesno:"Yes,No" }}</td>
-    <td class="n">{{ r.theoretical_cost|money }}</td><td class="n">{{ r.opening|money }}</td><td class="n">{{ r.purchases|money }}</td><td class="n">{{ r.closing|money }}</td>
+    <td class="n">{{ r.theoretical_cost|money }}</td><td class="n" data-v="{{ r.opening|stringformat:'.4f' }}">{{ r.opening|money }}{% if r.opening_sf %}<div class="muted" style="font-size:11.5px" title="Held inside counted semi-finished stock">{{ r.opening_sf|money }} in SF</div>{% endif %}</td><td class="n">{{ r.purchases|money }}</td><td class="n" data-v="{{ r.closing|stringformat:'.4f' }}">{{ r.closing|money }}{% if r.closing_sf %}<div class="muted" style="font-size:11.5px" title="Held inside counted semi-finished stock">{{ r.closing_sf|money }} in SF</div>{% endif %}</td>
     <td class="n">{{ r.actual_cost|money }}</td>{% with v=r.variance_pct %}<td class="n {% if v is not None and v > tolerance %}pos{% elif v is not None and v < tolerance|neg %}warn{% endif %}">{{ r.variance|money }}</td><td class="n">{{ v|pct }}</td>{% endwith %}
     <td class="n" data-v="{{ r.variance_qty|default_if_none:'' }}">{% if r.variance_qty is not None %}{{ r.variance_qty|num:1 }} {{ r.base_uom }}{% else %}-{% endif %}</td></tr>
   {% empty %}<tr data-empty><td colspan="12" class="muted">No data yet.</td></tr>{% endfor %}
