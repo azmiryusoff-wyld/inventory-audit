@@ -211,6 +211,15 @@ def sf_list(request, brand_code):
     })
 
 
+class SemiFinishedRecipeForm(forms.Form):
+    """The recipe a new semi-finished item is created with: a semi-finished item can't exist without one."""
+
+    batch_yield = forms.DecimalField(
+        label="Batch makes", min_value=0.000001, max_digits=18, decimal_places=6,
+        help_text="How much one batch makes, in the unit above: 1000 for a 1 kg batch in grams. Required.")
+    note = forms.CharField(required=False, max_length=300, label="Recipe note")
+
+
 @login_required
 def sf_edit(request, brand_code, pk=None):
     brand = access.get_brand(request.user, brand_code)
@@ -218,6 +227,8 @@ def sf_edit(request, brand_code, pk=None):
     if sf is None:
         raise Http404("No such semi-finished item.")
     _need(request.user, "change_semifinished" if pk else "add_semifinished")
+    if not pk:
+        return _sf_new(request, brand, sf)
     fields = ["sku", "name", "output_uom", "active"]
     before = history.snapshot(sf, fields) if pk else {}
     form = SemiFinishedForm(request.POST or None, instance=sf, brand=brand)
@@ -233,6 +244,45 @@ def sf_edit(request, brand_code, pk=None):
         "back": reverse("data_sf", args=[brand.code]),
         "recipe_link": (reverse("data_recipe_edit", args=[brand.code, sf.recipe.pk]) if pk and hasattr(sf, "recipe")
                         else reverse("data_recipe_new", args=[brand.code]) + f"?sf={sf.pk}" if pk else ""),
+    })
+
+
+def _sf_new(request, brand, sf):
+    """A new semi-finished item is saved together with its recipe (batch yield and at least one line)."""
+    _need(request.user, "add_recipe")
+    form = SemiFinishedForm(request.POST or None, instance=sf, brand=brand)
+    form.fields["output_uom"].required = True
+    recipe_form = SemiFinishedRecipeForm(request.POST or None)
+    lines = RecipeLineFormSet(request.POST or None, form_kwargs={"brand": brand}, prefix="lines")
+    if request.method == "POST" and form.is_valid() and recipe_form.is_valid() and lines.is_valid():
+        kept = [f.cleaned_data for f in lines if f.cleaned_data and not f.cleaned_data.get("empty")]
+        if not kept:
+            messages.error(request, "Add at least one ingredient line: a semi-finished item must have a recipe.")
+        elif any(d["sf"] is not None and d["sf"].sku.lower() == form.cleaned_data["sku"].lower() for d in kept):
+            messages.error(request, f"{form.cleaned_data['sku']} can't be an ingredient of itself.")
+        else:
+            with transaction.atomic():
+                sf = form.save()
+                recipe = Recipe.objects.create(brand=brand, semi_finished=sf,
+                                               batch_yield=recipe_form.cleaned_data["batch_yield"],
+                                               note=recipe_form.cleaned_data["note"])
+                RecipeLine.objects.bulk_create(
+                    RecipeLine(recipe=recipe, item=d["item"], semi_finished=d["sf"], qty_per_batch=d["qty"])
+                    for d in kept)
+                from .signals import invalidate
+
+                invalidate()
+                history.log(request.user, "add", "Semi-finished item", sf,
+                            changes=history.diff({}, history.snapshot(sf, ["sku", "name", "output_uom", "active"])))
+                history.log(request.user, "add", "Recipe", recipe, changes={
+                    "batch makes": [None, history._plain(recipe.batch_yield)], "lines": [None, _recipe_lines_text(recipe)]})
+            messages.success(request, f"Semi-finished item {sf} saved with its recipe.")
+            return redirect("data_sf", brand.code)
+    components = list(SemiFinished.objects.filter(brand=brand).values_list("sku", "name")) + list(
+        Item.objects.filter(active=True).values_list("sku", "name"))
+    return render(request, "audit/data/sf_new.html", {
+        **_brand_ctx(request, brand, "sf"), "form": form, "recipe_form": recipe_form, "lines": lines,
+        "components": components, "back": reverse("data_sf", args=[brand.code]),
     })
 
 
@@ -343,7 +393,8 @@ def recipe_edit(request, brand_code, pk=None):
     else:
         parent = (f"menu:{request.GET['menu']}" if request.GET.get("menu")
                   else f"sf:{request.GET['sf']}" if request.GET.get("sf") else "")
-        initial, line_initial = {"parent": parent, "batch_yield": 1}, []
+        # A semi-finished item's batch yield must be typed in, never assumed to be 1.
+        initial, line_initial = {"parent": parent, "batch_yield": None if parent.startswith("sf:") else 1}, []
     form = RecipeForm(request.POST or None, brand=brand, recipe=recipe, initial=initial)
     lines = RecipeLineFormSet(request.POST or None, initial=line_initial, form_kwargs={"brand": brand}, prefix="lines")
     if request.method == "POST" and form.is_valid() and lines.is_valid():
@@ -351,6 +402,9 @@ def recipe_edit(request, brand_code, pk=None):
         parent = form.cleaned_data["parent"]
         if not kept:
             messages.error(request, "Add at least one ingredient line.")
+        elif pk and recipe.semi_finished_id and parent != recipe.semi_finished:
+            messages.error(request, f"{recipe.semi_finished.sku} would be left with no recipe. A semi-finished "
+                                    "item must always have one: create a new recipe for the other item instead.")
         elif any(d["sf"] is not None and d["sf"] == parent for d in kept):
             messages.error(request, f"{parent.sku} can't be an ingredient of itself.")
         else:
@@ -409,6 +463,10 @@ def recipe_delete(request, brand_code, pk):
     recipe = Recipe.objects.filter(brand=brand, pk=pk).first()
     if recipe is None or request.method != "POST":
         raise Http404("No such recipe.")
+    if recipe.semi_finished_id:
+        messages.error(request, f"{recipe.semi_finished.sku} is a semi-finished item, which must always have a "
+                                "recipe. Change the recipe instead, or set the item inactive.")
+        return redirect("data_recipe_edit", brand.code, recipe.pk)
     text = _recipe_lines_text(recipe)
     history.log(request.user, "delete", "Recipe", recipe, changes={"lines": [text, None]})
     recipe.delete()

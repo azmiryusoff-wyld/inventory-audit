@@ -105,6 +105,11 @@ class EngineInput:
     opening_value: dict[str, float] = field(default_factory=dict)
     purchases_value: dict[str, float] = field(default_factory=dict)
     closing_value: dict[str, float] = field(default_factory=dict)
+    # Semi-finished items counted in stock, in the unit their recipe makes (g, ml, pcs), per SF SKU.
+    # They are broken down through their recipes into the supplier items they were made from, and those
+    # items' stock values go up by that much (see stock_from_semi_finished).
+    opening_sf_qty: dict[str, float] = field(default_factory=dict)
+    closing_sf_qty: dict[str, float] = field(default_factory=dict)
     categories: list[str] = field(default_factory=lambda: list(DEFAULT_CATEGORIES))
     # Safety net against runaway recipes. The sheet stops at 5 levels;
     # the app goes deeper but still flags anything past this.
@@ -168,8 +173,12 @@ class Explosion:
     too_deep: set[str]  # demand SKUs whose tree went past max_depth
 
 
-def explode(inp: EngineInput, subs: dict[str, Substitution] | None = None) -> Explosion:
+def explode(inp: EngineInput, subs: dict[str, Substitution] | None = None,
+            demand: dict[str, float] | None = None) -> Explosion:
     """Push external demand down through recipes to every component.
+
+    ``demand`` defaults to the audit's sales and production; a semi-finished stock count is
+    pushed through the same way (see stock_from_semi_finished).
 
     Same maths as the sheet's D0..D5 columns, but recursive, so any depth works.
     Each SKU's own demand is counted too (the sheet's 'Total Net Consumption'
@@ -199,7 +208,7 @@ def explode(inp: EngineInput, subs: dict[str, Substitution] | None = None) -> Ex
                 continue
             walk(comp, qty * per_unit, path + (comp,), root)
 
-    for sku, qty in inp.demand.items():
+    for sku, qty in (inp.demand if demand is None else demand).items():
         if qty:
             walk(sku, qty, (sku,), sku)
     return Explosion(dict(net), deepest, cycles, too_deep)
@@ -238,6 +247,30 @@ def unit_costs(inp: EngineInput, subs: dict[str, Substitution] | None = None) ->
 
     skus = set(inp.items) | set(inp.recipes) | set(inp.menu)
     return {sku: cost(sku, frozenset()) for sku in skus}
+
+
+def stock_from_semi_finished(
+    inp: EngineInput, counted: dict[str, float], subs: dict[str, Substitution] | None = None
+) -> dict[str, float]:
+    """Value of the supplier items held inside counted semi-finished stock, per item SKU.
+
+    1.2 kg of caramel sauce in the fridge is the sugar, cream and butter it was made from. The count
+    is pushed down through the recipes exactly like a sale (batch yield, nested semi-finished items,
+    substitutions), and each item is valued the way consumption is: net / yield x cost per base unit.
+    """
+    subs = active_substitutions(inp) if subs is None else subs
+    counted = {sku: qty for sku, qty in counted.items() if qty and sku in inp.recipes}
+    if not counted:
+        return {}
+    net = explode(inp, subs, demand=counted).net
+    out: dict[str, float] = {}
+    for sku, n in net.items():
+        item = inp.items.get(sku)
+        if item is None or sku in inp.recipes or not n:
+            continue
+        y = item.yield_pct
+        out[sku] = (n / y if y and y > 0 else n) * item.cost_per_base
+    return out
 
 
 def recipe_cost_no_yield(inp: EngineInput, sku: str, subs=None, _stack=frozenset()) -> float:
@@ -296,6 +329,10 @@ class VarianceRow:
     closing: float
     cost_per_base: float = 0.0
     base_uom: str = ""
+    # The part of opening / closing that is this item held inside counted semi-finished stock.
+    # Already included in opening and closing.
+    opening_sf: float = 0.0
+    closing_sf: float = 0.0
 
     @property
     def actual_cost(self) -> float:
@@ -380,6 +417,9 @@ class EngineResult:
     substitution_status: list[tuple[Substitution, str]]
     categories: list[str]
     total_sales: float
+    # Semi-finished stock counts with their value at today's recipe cost:
+    # [{"kind": "opening"/"closing", "sku", "qty", "value"}]
+    sf_stock: list[dict] = field(default_factory=list)
 
     @property
     def status(self) -> str:
@@ -501,9 +541,12 @@ def _consumption(inp: EngineInput, net: dict[str, float]) -> list[ConsumptionRow
     return rows
 
 
-def _variance(inp: EngineInput, consumption: list[ConsumptionRow]) -> list[VarianceRow]:
+def _variance(inp: EngineInput, consumption: list[ConsumptionRow],
+              subs: dict[str, Substitution] | None = None) -> list[VarianceRow]:
     theo = {r.sku: r.theoretical_cost for r in consumption}
     components = {line.component_sku for r in inp.recipes.values() for line in r.lines}
+    open_sf = stock_from_semi_finished(inp, inp.opening_sf_qty, subs)
+    close_sf = stock_from_semi_finished(inp, inp.closing_sf_qty, subs)
     rows = []
     for sku, item in sorted(inp.items.items()):
         row = VarianceRow(
@@ -512,11 +555,13 @@ def _variance(inp: EngineInput, consumption: list[ConsumptionRow]) -> list[Varia
             category=item.category,
             has_recipe=sku in components,
             theoretical_cost=theo.get(sku, 0.0),
-            opening=inp.opening_value.get(sku, 0.0),
+            opening=inp.opening_value.get(sku, 0.0) + open_sf.get(sku, 0.0),
             purchases=inp.purchases_value.get(sku, 0.0),
-            closing=inp.closing_value.get(sku, 0.0),
+            closing=inp.closing_value.get(sku, 0.0) + close_sf.get(sku, 0.0),
             cost_per_base=item.cost_per_base,
             base_uom=item.base_uom,
+            opening_sf=open_sf.get(sku, 0.0),
+            closing_sf=close_sf.get(sku, 0.0),
         )
         if row.theoretical_cost or row.opening or row.purchases or row.closing:
             rows.append(row)
@@ -587,6 +632,11 @@ def _checks(
         if qty > 0 and sku in inp.menu and sku not in inp.recipes
     ]
     depth = sorted(explosion.too_deep) + [" -> ".join(c) for c in sorted(explosion.cycles)]
+    # A semi-finished item must have a recipe with a batch yield: without one it costs nothing in sales
+    # and its stock can't be broken down into the items it was made from.
+    sf_used = {line.component_sku for r in inp.recipes.values() for line in r.lines} | set(inp.demand) \
+        | set(inp.opening_sf_qty) | set(inp.closing_sf_qty)
+    sf_no_recipe = sorted(sku for sku in inp.semi_finished & sf_used if sku not in inp.recipes)
     # An item whose category isn't one of the report's categories would fall out of every COGS total.
     # It is shown as its own row in "COGS by category", and flagged here so it gets fixed at the source.
     odd_category = sorted(
@@ -608,6 +658,9 @@ def _checks(
         Check("no_recipe", "Menu items sold with no recipe", len(no_recipe),
               "Add a recipe for the sold menu item, otherwise its cost is zero.", sorted(no_recipe), "Chef",
               f"{sum(inp.demand[s] for s in no_recipe):,.0f} units costed at zero" if no_recipe else ""),
+        Check("sf_no_recipe", "Semi-finished items with no recipe", len(sf_no_recipe),
+              "Every semi-finished item needs a recipe and a batch yield. Add the recipe; until then it "
+              "costs nothing and its stock counts as nothing.", sf_no_recipe, "Chef"),
         Check("depth", "Recipe loops or nesting too deep", len(depth),
               "A recipe contains itself somewhere down the chain, or nests deeper than the limit.", depth, "Chef"),
         Check("subs", "Invalid substitution mappings",
@@ -627,7 +680,7 @@ def run(inp: EngineInput) -> EngineResult:
     explosion = explode(inp, subs)
     costs = unit_costs(inp, subs)
     consumption = _consumption(inp, explosion.net)
-    variance = _variance(inp, consumption)
+    variance = _variance(inp, consumption, subs)
     menu = _menu_engineering(inp, costs)
     total_sales = sum(qty * inp.menu[sku].price for sku, qty in inp.sold.items() if sku in inp.menu)
     return EngineResult(
@@ -642,4 +695,9 @@ def run(inp: EngineInput) -> EngineResult:
             {r.category for r in variance if r.category not in inp.categories}
         ),
         total_sales=total_sales,
+        sf_stock=[
+            {"kind": kind, "sku": sku, "qty": qty, "value": qty * costs.get(sku, 0.0)}
+            for kind, counted in (("opening", inp.opening_sf_qty), ("closing", inp.closing_sf_qty))
+            for sku, qty in sorted(counted.items())
+        ],
     )

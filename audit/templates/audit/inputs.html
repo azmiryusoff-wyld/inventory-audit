@@ -24,7 +24,7 @@
 
 <div class="section-head"><h2 id="count">Stock counts <span class="muted">({{ counts_rows|length }})</span></h2>{% if can_edit.count %}<a class="btn secondary sm" href="{% url 'audit_line_new' audit.pk 'count' %}?count=closing">{% icon "plus" 14 %} Add line</a>{% endif %}</div>
 <div class="scroll"><table class="sortable searchable"><tr><th>Count</th><th>SKU</th><th>Description</th><th class="n">Value</th><th class="n">Qty (base units)</th>{% if can_edit.count %}<th></th>{% endif %}</tr>
-{% for c in counts_rows %}<tr><td>{{ c.get_kind_display }}</td><td>{{ c.sku }}{% if not c.item %} <span class="pill REVIEW">unknown</span>{% endif %}</td><td>{{ c.description }}</td><td class="n">{{ c.value|money }}</td><td class="n">{{ c.qty_base|num:3 }} {{ c.item.base_uom }}</td>{% if can_edit.count %}<td><a href="{% url 'audit_line_edit' audit.pk 'count' c.pk %}">Edit</a></td>{% endif %}</tr>
+{% for c in counts_rows %}<tr><td>{{ c.get_kind_display }}</td><td>{{ c.sku }}{% if c.semi_finished %} <span class="pill INCOMPLETE" title="Made in-house: counted by weight and broken down into its ingredients through its recipe">semi-finished</span>{% elif not c.item %} <span class="pill REVIEW">unknown</span>{% endif %}</td><td>{{ c.description }}</td><td class="n">{% if c.semi_finished %}{{ c.sf_value|money }}{% else %}{{ c.value|money }}{% endif %}</td><td class="n">{{ c.qty_base|num:3 }} {{ c.unit }}</td>{% if can_edit.count %}<td><a href="{% url 'audit_line_edit' audit.pk 'count' c.pk %}">Edit</a></td>{% endif %}</tr>
 {% empty %}<tr data-empty><td colspan="6" class="muted">No stock counts uploaded.</td></tr>{% endfor %}
 </table></div>
 <script>

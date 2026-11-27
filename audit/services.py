@@ -100,8 +100,12 @@ def build_engine_input(audit: AuditPeriod, masters: dict | None = None) -> engin
         if p.sku:
             demand[p.sku] += float(p.qty)
     values = {"opening": defaultdict(float), "closing": defaultdict(float)}
-    for c in audit.stock_counts.all():
-        values[c.kind][c.sku] += float(c.value)
+    sf_qty = {"opening": defaultdict(float), "closing": defaultdict(float)}
+    for c in audit.stock_counts.select_related("semi_finished"):
+        if c.semi_finished_id:
+            sf_qty[c.kind][c.semi_finished.sku] += float(c.qty)
+        else:
+            values[c.kind][c.sku] += float(c.value)
     purchases: dict[str, float] = defaultdict(float)
     for p in audit.purchases.all():
         purchases[p.sku] += float(p.value)
@@ -110,6 +114,8 @@ def build_engine_input(audit: AuditPeriod, masters: dict | None = None) -> engin
     inp.opening_value = dict(values["opening"])
     inp.closing_value = dict(values["closing"])
     inp.purchases_value = dict(purchases)
+    inp.opening_sf_qty = dict(sf_qty["opening"])
+    inp.closing_sf_qty = dict(sf_qty["closing"])
     return inp
 
 
@@ -129,6 +135,8 @@ def engine_input_to_json(inp: engine.EngineInput) -> dict:
         "opening_value": inp.opening_value,
         "purchases_value": inp.purchases_value,
         "closing_value": inp.closing_value,
+        "opening_sf_qty": inp.opening_sf_qty,
+        "closing_sf_qty": inp.closing_sf_qty,
         "categories": inp.categories,
     }
 
@@ -150,6 +158,9 @@ def engine_input_from_json(data: dict) -> engine.EngineInput:
         opening_value=data["opening_value"],
         purchases_value=data["purchases_value"],
         closing_value=data["closing_value"],
+        # Not in snapshots taken before semi-finished stock could be counted.
+        opening_sf_qty=data.get("opening_sf_qty", {}),
+        closing_sf_qty=data.get("closing_sf_qty", {}),
         categories=data["categories"],
     )
 
@@ -323,7 +334,7 @@ def input_issues(audit: AuditPeriod) -> list[engine.Check]:
     unmatched_units = sum(s.qty for s in unmatched)
     unknown_p = list(audit.purchases.filter(item__isnull=True))
     unknown_purchases = sorted({p.sku for p in unknown_p})
-    unknown_c = list(audit.stock_counts.filter(item__isnull=True))
+    unknown_c = list(audit.stock_counts.filter(item__isnull=True, semi_finished__isnull=True))
     unknown_counts = sorted({c.sku for c in unknown_c})
     purchases = list(audit.purchases.all())
     year, month = (int(x) for x in audit.period.split("-"))
@@ -398,21 +409,27 @@ def opening_vs_previous_closing(audit: AuditPeriod) -> list[str]:
     prev = previous_audit(audit)
     if prev is None:
         return []
-    closing = defaultdict(Decimal)
-    for c in prev.stock_counts.filter(kind="closing"):
-        closing[c.sku] += c.value
+    # Items are compared by RM value, semi-finished items by the weight counted.
+    def totals(qs):
+        out = defaultdict(Decimal)
+        for c in qs:
+            out[(c.sku, bool(c.semi_finished_id))] += c.qty if c.semi_finished_id else c.value
+        return out
+
+    closing = totals(prev.stock_counts.filter(kind="closing"))
     if not closing:
         return []
-    opening = defaultdict(Decimal)
-    for c in audit.stock_counts.filter(kind="opening"):
-        opening[c.sku] += c.value
+    opening = totals(audit.stock_counts.filter(kind="opening"))
     if not opening:
         return []
-    return [
-        f"{sku}: opening {opening.get(sku, Decimal(0)):,.2f}, last closing {closing.get(sku, Decimal(0)):,.2f}"
-        for sku in sorted(set(opening) | set(closing))
-        if abs(opening.get(sku, Decimal(0)) - closing.get(sku, Decimal(0))) >= Decimal("0.01")
-    ]
+    out = []
+    for key in sorted(set(opening) | set(closing)):
+        o, c = opening.get(key, Decimal(0)), closing.get(key, Decimal(0))
+        if abs(o - c) >= Decimal("0.01"):
+            sku, is_sf = key
+            out.append(f"{sku}: opening {o:,.3f} counted, last closing {c:,.3f} (semi-finished)" if is_sf
+                       else f"{sku}: opening {o:,.2f}, last closing {c:,.2f}")
+    return out
 
 
 def is_first_month(audit: AuditPeriod) -> bool:
@@ -442,7 +459,8 @@ def copy_previous_closing(audit: AuditPeriod) -> int | None:
     invalidate(audit=audit)
     audit.stock_counts.filter(kind="opening").delete()
     StockCount.objects.bulk_create(
-        StockCount(audit=audit, kind="opening", sku=c.sku, item=c.item, description=c.description, value=c.value)
+        StockCount(audit=audit, kind="opening", sku=c.sku, item=c.item, semi_finished=c.semi_finished,
+                   description=c.description, value=c.value, qty=c.qty)
         for c in rows
     )
     return len(rows)

@@ -1,0 +1,46 @@
+{% extends "audit/base.html" %}{% load audit_tags %}
+{% block content %}
+{% include "audit/data/_nav.html" %}
+<a class="back-link" href="{{ back }}">{% icon "back" 14 %} Back</a>
+<h2 style="margin-top:0;font-size:18px">New semi-finished item</h2>
+<p class="muted">A semi-finished item is always saved with its recipe: the batch yield and at least one ingredient are required.
+  The recipe is what turns a stock count of it (by weight) back into the supplier items it was made from.</p>
+<form method="post" class="card">{% csrf_token %}
+  {% if form.non_field_errors %}<div class="msg error">{% icon "alert" %}<div class="msg-body">{{ form.non_field_errors|join:" " }}</div></div>{% endif %}
+  <div class="form-grid">
+  {% for field in form %}
+    <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+    <div>{{ field }}{% if field.help_text %}<div class="help">{{ field.help_text }}</div>{% endif %}{{ field.errors }}</div>
+  {% endfor %}
+  {% for field in recipe_form %}
+    <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+    <div>{{ field }}{% if field.help_text %}<div class="help">{{ field.help_text }}</div>{% endif %}{{ field.errors }}</div>
+  {% endfor %}
+  </div>
+  <h2>Ingredients per batch</h2>
+  <p class="muted">An item master SKU (quantity in its base unit: g, ml, pcs) or another semi-finished SKU of {{ brand.code }}. Start typing to pick.</p>
+  {{ lines.management_form }}
+  {% if lines.non_form_errors %}<div class="msg error">{{ lines.non_form_errors|join:" " }}</div>{% endif %}
+  <div class="scroll" style="max-width:760px"><table id="lines">
+    <tr><th>SKU</th><th>Quantity per batch</th></tr>
+    {% for f in lines %}<tr><td>{{ f.component }}{{ f.component.errors }}{{ f.non_field_errors }}</td><td>{{ f.qty }}{{ f.qty.errors }}</td></tr>{% endfor %}
+  </table></div>
+  <p><button type="button" class="secondary sm" id="add-line">{% icon "plus" 14 %} Add another line</button></p>
+  <div class="form-actions"><button>Save item and recipe</button> <a class="btn secondary" href="{{ back }}">Cancel</a></div>
+</form>
+<datalist id="component-skus">{% for sku, name in components %}<option value="{{ sku }}">{{ name }}</option>{% endfor %}</datalist>
+<script>
+(function () {
+  var btn = document.getElementById("add-line"); if (!btn) return;
+  btn.addEventListener("click", function () {
+    var total = document.getElementById("id_lines-TOTAL_FORMS"), n = parseInt(total.value, 10);
+    var rows = document.querySelectorAll("#lines tr"), last = rows[rows.length - 1], copy = last.cloneNode(true);
+    copy.querySelectorAll("input").forEach(function (i) {
+      i.name = i.name.replace(/lines-\d+-/, "lines-" + n + "-"); i.id = i.id.replace(/lines-\d+-/, "lines-" + n + "-"); i.value = "";
+    });
+    copy.querySelectorAll(".errorlist").forEach(function (e) { e.remove(); });
+    last.parentNode.appendChild(copy); total.value = n + 1;
+  });
+})();
+</script>
+{% endblock %}
