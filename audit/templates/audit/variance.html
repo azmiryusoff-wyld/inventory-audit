@@ -5,7 +5,7 @@
   Red: used more than the recipes say by over the {{ audit.variance_tolerance|pct }} tolerance. Amber: used less by over the tolerance (often a missing count or purchase).
   Variance qty is the variance in the item's own unit (g, ml, pcs) at today's cost per unit. Click a heading to sort.</p>
 {% if variance_totals.opening_sf or variance_totals.closing_sf %}<p class="muted">Opening and closing include supplier items held inside counted semi-finished stock (sauces, doughs, syrups), broken down through their recipes:
-  {{ currency }} {{ variance_totals.opening_sf|money }} at opening and {{ currency }} {{ variance_totals.closing_sf|money }} at closing. The part of each figure that came from semi-finished stock is shown under it.</p>{% endif %}
+  {% if variance_totals.opening_sf %}{{ currency }} {{ variance_totals.opening_sf|money }} at opening{% if variance_totals.closing_sf %} and {% endif %}{% endif %}{% if variance_totals.closing_sf %}{{ currency }} {{ variance_totals.closing_sf|money }} at closing{% endif %}. The part of each figure that came from semi-finished stock is shown under it.</p>{% endif %}
 <div class="toolbar">
   <input type="search" placeholder="Search SKU or item" data-filter="variance-table" data-filter-select="variance-cat" aria-label="Search">
   <select id="variance-cat" aria-label="Category"><option value="">All categories</option>{% for c in categories %}<option>{{ c }}</option>{% endfor %}</select>
