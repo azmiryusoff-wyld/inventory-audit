@@ -1029,6 +1029,11 @@ def _adopt_respaced_skus(existing, workbook_skus) -> int:
     return renamed
 
 
+# A menu recipe that makes more portions than this per batch is reported (a 4500 typed for 1 would cost
+# each portion at 1/4500 of the recipe). Chonky's 40-cookie batches stay under it.
+MENU_BATCH_YIELD_WARN = Decimal("100")
+
+
 @transaction.atomic
 def load_workbook_masters(brand, file) -> dict[str, ImportReport]:
     """One-off migration: read a brand's workbook (.xlsx download) into the app.
@@ -1106,16 +1111,22 @@ def load_workbook_masters(brand, file) -> dict[str, ImportReport]:
         Recipe.objects.filter(brand=brand).delete()
         recipes: dict[str, Recipe] = {}
         no_yield: set[str] = set()
+        sf_as_item: dict = {}
         for r in rows[1:]:
             p_sku, p_name = clean(cell(r, cols, "Parent SKU")), clean(cell(r, cols, "Parent Name"))
             c_sku, c_name = clean(cell(r, cols, "Component SKU")), clean(cell(r, cols, "Component Name"))
+            # The sheet writes "?" when it can't find a name; that is not a SKU.
+            p_sku = "" if p_sku == "?" else p_sku
+            c_sku = "" if c_sku == "?" else c_sku
             if not (p_sku or p_name) or not (c_sku or c_name):
                 continue
             menu = menus.get(p_sku) or menus_by_name.get(norm(p_name))
             sf = None if menu else (sfs.get(p_sku) or sfs_by_name.get(norm(p_name)))
             if not (menu or sf):
                 rep.skipped += 1
-                rep.warnings.append(f"Parent not found: {p_sku or p_name}")
+                msg = f"Parent not found (not in 23 Menu Master or 21 SF Master): {p_name or p_sku}"
+                if msg not in rep.warnings:
+                    rep.warnings.append(msg)
                 continue
             comp_sf = sfs.get(c_sku) or sfs_by_name.get(norm(c_name))
             comp_item = None if comp_sf else (items.get(c_sku) or items_by_name.get(norm(c_name)))
@@ -1123,6 +1134,10 @@ def load_workbook_masters(brand, file) -> dict[str, ImportReport]:
                 rep.skipped += 1
                 rep.warnings.append(f"Component not found: {c_sku or c_name} (in {p_name})")
                 continue
+            if comp_item is not None and comp_item.category == "Semi Finished":
+                # Made in-house, but this brand's 21 SF Master has no recipe for it, so it is costed at
+                # whatever price was typed in the item master (often none).
+                sf_as_item.setdefault(comp_item, set()).add(p_name or p_sku)
             key = (menu or sf).sku
             if key not in recipes:
                 batch = to_decimal(cell(r, cols, "Parent Batch Yield Qty"), default=None)
@@ -1133,11 +1148,21 @@ def load_workbook_masters(brand, file) -> dict[str, ImportReport]:
                     continue
                 recipes[key] = Recipe.objects.create(brand=brand, menu_item=menu, semi_finished=sf,
                                                      batch_yield=batch if batch and batch > 0 else Decimal("1"))
+                if menu is not None and batch and batch > MENU_BATCH_YIELD_WARN:
+                    rep.warnings.append(
+                        f"{menu.sku} {menu.name}: batch yield {batch.normalize():f} portions. Each portion is "
+                        f"costed at 1/{batch.normalize():f} of the recipe. Check it isn't a typo for 1.")
             RecipeLine.objects.create(
                 recipe=recipes[key], item=comp_item, semi_finished=comp_sf,
                 qty_per_batch=to_decimal(cell(r, cols, "Component Qty (per batch)")),
             )
             rep.created += 1
+        for item, parents in sorted(sf_as_item.items(), key=lambda kv: kv[0].sku):
+            price = f"RM{item.purchase_price:.2f} per pack" if item.purchase_price else "no price, so RM0"
+            rep.warnings.append(
+                f"{item.sku} {item.name} is a semi-finished item in the item master but has no recipe in "
+                f"21 SF Master; costed at its item master price ({price}). Used in {len(parents)} recipe(s): "
+                + ", ".join(sorted(parents)[:5]) + ("..." if len(parents) > 5 else ""))
         no_recipe = sorted(s.sku for s in SemiFinished.objects.filter(brand=brand, recipe__isnull=True)
                            if s.sku not in no_yield)
         problems = ([f"{sku}: no batch yield" for sku in sorted(no_yield)]
