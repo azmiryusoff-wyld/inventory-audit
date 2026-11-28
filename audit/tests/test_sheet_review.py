@@ -212,7 +212,28 @@ class ReportExtrasTests(TestCase):
         glass = next(r for r in self.result.menu if r.sku == "GLASS")
         self.assertEqual((latte.popularity_category, latte.profit_category), ("H", "H"))
         self.assertEqual((glass.popularity_category, glass.profit_category), ("L", "L"))
-        self.assertAlmostEqual(latte.net_after_cost, latte.total_contribution - latte.total_cost)
+
+
+class FreeMenuItemTests(TestCase):
+    def test_free_items_are_kept_out_of_the_classification(self):
+        fb = "Food & Beverage"
+        recipe = lambda sku: engine.Recipe(sku, 1, (engine.RecipeLine("BEAN", 18),))
+        inp = engine.EngineInput(
+            items={"BEAN": engine.Item("BEAN", "Coffee bean", fb, 0.1)},
+            recipes={s: recipe(s) for s in ("LATTE", "MOCHA", "STAFF")},
+            menu={"LATTE": engine.MenuItem("LATTE", "Latte", 12, "Beverage"),
+                  "MOCHA": engine.MenuItem("MOCHA", "Mocha", 14, "Beverage"),
+                  "STAFF": engine.MenuItem("STAFF", "Staff coffee", 0, "Beverage")},
+            demand={"LATTE": 50, "MOCHA": 10, "STAFF": 200}, sold={"LATTE": 50, "MOCHA": 10, "STAFF": 200},
+        )
+        menu = {r.sku: r for r in engine.run(inp).menu}
+        self.assertEqual(menu["STAFF"].menu_class, "FREE")
+        self.assertEqual((menu["STAFF"].profit_category, menu["STAFF"].popularity_category), ("", ""))
+        # Only the two priced drinks share the category: threshold 0.7 / 2, average margin over their units.
+        self.assertAlmostEqual(menu["LATTE"].popularity_threshold, 0.35)
+        self.assertAlmostEqual(menu["LATTE"].mix_share, 50 / 60)
+        self.assertEqual(menu["LATTE"].menu_class, "PLOWHORSE")
+        self.assertEqual(menu["MOCHA"].menu_class, "PUZZLE")
 
 
 class RespacedSkuReimportTests(Base):

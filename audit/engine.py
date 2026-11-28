@@ -34,10 +34,12 @@ DEFAULT_CATEGORIES = [
 
 # "NO RECIPE": sold but has no recipe, so its cost is unknown (shown as 0). It is kept out of the
 # category averages and thresholds, which it would otherwise distort, and never classed STAR.
+# "FREE": sold at no price (staff or calibration coffee, cakeage). Nothing to earn, so it is kept out
+# of the classification too, instead of being counted as a DOG.
 # Smallest RM amount per item for the "used but in no recipe" and "never bought" checks.
 MATERIAL = 50.0
 
-MENU_CLASS_ORDER = {"STAR": 1, "PLOWHORSE": 2, "PUZZLE": 3, "DOG": 4, "NO RECIPE": 5}
+MENU_CLASS_ORDER = {"STAR": 1, "PLOWHORSE": 2, "PUZZLE": 3, "DOG": 4, "NO RECIPE": 5, "FREE": 6}
 
 
 # --------------------------------------------------------------------------
@@ -392,21 +394,16 @@ class MenuRow:
         return self.price * self.units
 
     @property
-    def net_after_cost(self) -> float:
-        """62 Menu Engineering "Net (Contrib - Cost)": total contribution minus total cost."""
-        return self.total_contribution - self.total_cost
-
-    @property
     def profit_category(self) -> str:
         """H if the margin is above its category's average (62 col N), else L. Blank with no recipe."""
-        if not self.has_recipe:
+        if self.menu_class in ("NO RECIPE", "FREE"):
             return ""
         return "H" if self.margin > self.cat_avg_margin else "L"
 
     @property
     def popularity_category(self) -> str:
         """H if its share of the category's units is above the popularity threshold (62 col P), else L."""
-        if not self.has_recipe:
+        if self.menu_class in ("NO RECIPE", "FREE"):
             return ""
         return "H" if self.mix_share > self.popularity_threshold else "L"
 
@@ -528,7 +525,7 @@ class EngineResult:
         out = []
         for cls in MENU_CLASS_ORDER:
             rows = [r for r in self.menu if r.menu_class == cls]
-            if cls == "NO RECIPE" and not rows:
+            if cls in ("NO RECIPE", "FREE") and not rows:
                 continue
             sales = sum(r.total_sales for r in rows)
             out.append(
@@ -615,10 +612,12 @@ def _menu_engineering(inp: EngineInput, unit_cost: dict[str, float]) -> list[Men
     ]
     by_cat: dict[str, list[MenuRow]] = defaultdict(list)
     for r in rows:
-        if r.has_recipe:
-            by_cat[r.category].append(r)
-        else:
+        if not r.has_recipe:
             r.menu_class = "NO RECIPE"
+        elif not r.price or r.price <= 0:
+            r.menu_class = "FREE"
+        else:
+            by_cat[r.category].append(r)
     for cat_rows in by_cat.values():
         units = sum(r.units for r in cat_rows)
         contribution = sum(r.total_contribution for r in cat_rows)
