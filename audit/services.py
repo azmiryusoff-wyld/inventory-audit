@@ -96,9 +96,12 @@ def build_engine_input(audit: AuditPeriod, masters: dict | None = None) -> engin
         if s.menu_item:
             demand[s.menu_item.sku] += float(s.qty)
             sold[s.menu_item.sku] += float(s.qty)
+    b2b_sales = 0.0
     for p in audit.production.select_related("menu_item", "semi_finished", "item"):
         if p.sku:
             demand[p.sku] += float(p.qty)
+        if p.kind == "b2b":
+            b2b_sales += float(p.sales_value)
     values = {"opening": defaultdict(float), "closing": defaultdict(float)}
     sf_qty = {"opening": defaultdict(float), "closing": defaultdict(float)}
     for c in audit.stock_counts.select_related("semi_finished"):
@@ -116,6 +119,7 @@ def build_engine_input(audit: AuditPeriod, masters: dict | None = None) -> engin
     inp.purchases_value = dict(purchases)
     inp.opening_sf_qty = dict(sf_qty["opening"])
     inp.closing_sf_qty = dict(sf_qty["closing"])
+    inp.b2b_sales = b2b_sales
     return inp
 
 
@@ -137,6 +141,7 @@ def engine_input_to_json(inp: engine.EngineInput) -> dict:
         "closing_value": inp.closing_value,
         "opening_sf_qty": inp.opening_sf_qty,
         "closing_sf_qty": inp.closing_sf_qty,
+        "b2b_sales": inp.b2b_sales,
         "categories": inp.categories,
     }
 
@@ -161,6 +166,8 @@ def engine_input_from_json(data: dict) -> engine.EngineInput:
         # Not in snapshots taken before semi-finished stock could be counted.
         opening_sf_qty=data.get("opening_sf_qty", {}),
         closing_sf_qty=data.get("closing_sf_qty", {}),
+        # Not in snapshots taken before B2B sales could be uploaded.
+        b2b_sales=data.get("b2b_sales", 0.0),
         categories=data["categories"],
     )
 
@@ -177,6 +184,7 @@ def input_counts(audit: AuditPeriod) -> dict[str, int]:
         "pos": audit.sales.count(),
         "purchases": audit.purchases.filter(source="supplier").count(),
         "interco": audit.purchases.filter(source="interco").count(),
+        "b2b": audit.production.filter(kind="b2b").count(),
         "opening": audit.stock_counts.filter(kind="opening").count(),
         "closing": audit.stock_counts.filter(kind="closing").count(),
     }
@@ -198,25 +206,34 @@ def audit_status(audit: AuditPeriod, result: engine.EngineResult, issues: list[e
     missing = [label for key, label in REQUIRED_INPUTS.items() if not counts.get(key)]
     failed = [c.label for c in result.checks + issues if not c.passed]
     tolerance = float(audit.variance_tolerance)
-    var_pct = dash["variance_fb_pct"]
+    var_pct = variance_pct_of_sales(dash)
     outside = variance_outside(dash, tolerance)
     if missing:
         code, reasons = "INCOMPLETE", ["Missing: " + ", ".join(missing)]
     elif failed:
         code, reasons = "REVIEW", ["Data checks to fix: " + ", ".join(failed)]
     elif outside:
-        code, reasons = "OUTSIDE", [f"F&B variance {var_pct:.1%} is outside the {tolerance:.1%} tolerance"]
+        code, reasons = "OUTSIDE", [f"F&B variance {var_pct:.1%} of sales is outside the {tolerance:.1%} tolerance"]
     else:
-        code, reasons = "PASS", [f"Complete, all checks pass, variance {var_pct:.1%} within {tolerance:.1%}"]
+        code, reasons = "PASS", [f"Complete, all checks pass, variance {var_pct:.1%} of sales "
+                                          f"within {tolerance:.1%}"]
     labels = {"INCOMPLETE": "Incomplete", "REVIEW": "Review", "OUTSIDE": "Outside tolerance", "PASS": "Pass"}
     return {"code": code, "label": labels[code], "reasons": reasons, "within_tolerance": not outside}
 
 
+def variance_pct_of_sales(dash: dict) -> float:
+    """F&B variance as a share of sales (POS + B2B). Worked out from the totals, so dashboards stored
+    before this figure existed (sign-off snapshots, ReportCache) give it too."""
+    sales = dash.get("total_sales") or 0.0
+    return dash["variance_fb"] / sales if sales else 0.0
+
+
 def variance_outside(dash: dict, tolerance: float) -> bool:
-    """Outside tolerance either way. With no theoretical cost, any actual cost is outside."""
-    if not dash["theoretical_fb"]:
+    """Outside tolerance either way, tested on the variance as a share of sales (the chef's rule).
+    With no sales, any variance is outside."""
+    if not dash.get("total_sales"):
         return abs(dash["variance_fb"]) >= 0.01
-    return abs(dash["variance_fb_pct"]) > tolerance
+    return abs(variance_pct_of_sales(dash)) > tolerance
 
 
 def audit_report(audit: AuditPeriod, masters: dict | None = None

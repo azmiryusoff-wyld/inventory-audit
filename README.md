@@ -6,7 +6,8 @@ logic and monthly routine, but holds every brand, outlet and month in one databa
 Each month, for each outlet:
 
 1. Start an audit (outlet + month).
-2. Upload the files you already export: POS item sales report, Xero invoices
+2. Upload the files you already export: POS item sales report (the raw Dinlr Item Sales
+   export works as it is, one location per file), Xero invoices
    (supplier and inter-company), opening and closing stock count forms.
    Each upload has a "Download empty template (.csv)" link with the exact column
    headers, for when a file has to be typed up by hand instead of exported.
@@ -26,7 +27,9 @@ with no Django in it, so it can be read and tested on its own.
 | Gross up | Gross = net ÷ yield % | 40 |
 | Theoretical cost | Gross × cost per base unit (pack price ÷ pack size) | 40, 50 |
 | Actual cost | Opening value + purchases − closing value | 61 |
-| Variance | Actual − theoretical (positive = leakage) | 60, 61 |
+| B2B sales | This outlet's Xero sales invoices to sister brands: invoiced sets x recipe batch yield = portions of demand; line amounts = B2B revenue, added to POS sales | 11, 60 |
+| Variance | Actual − theoretical (positive = leakage). Tolerance is tested on variance ÷ sales (POS + B2B) | 60, 61 |
+| Gross leakage vs offsets | Overuse and underuse shown apart, so errors that cancel out stay visible | Chart tab |
 | Menu engineering | Kasavana-Smith per menu category: margin vs category average, mix vs 70% of an equal share | 62 |
 
 Differences from the sheet, on purpose:
@@ -75,7 +78,7 @@ Every screen, Trends and the Excel export show the same status:
 |---|---|
 | Incomplete | POS sales, supplier purchases, opening or closing stock count is missing |
 | Review | A data check failed; fix the data before trusting the variance |
-| Outside tolerance | F&B variance is outside the audit's tolerance, over or under |
+| Outside tolerance | F&B variance, as a % of sales, is outside the audit's tolerance, over or under |
 | Pass | Complete, every check passes, variance within tolerance |
 
 ### The monthly routine, in the app

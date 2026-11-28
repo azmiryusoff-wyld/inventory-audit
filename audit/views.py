@@ -29,7 +29,8 @@ class NewAuditForm(forms.ModelForm):
     tolerance_pct = forms.DecimalField(
         label="Variance tolerance (%)", initial=2, min_value=0, max_value=50, decimal_places=2,
         widget=forms.NumberInput(attrs={"step": "0.5", "style": "width:5em"}),
-        help_text="How far actual F&B COGS may be from theoretical, either way, before the audit is flagged.",
+        help_text="How far actual F&B COGS may be from theoretical, either way, as a % of sales, before the "
+                  "audit is flagged.",
     )
 
     class Meta:
@@ -77,6 +78,7 @@ UPLOAD_PERMISSIONS = {
     "pos": "audit.change_saleline",
     "purchases": "audit.change_purchaseline",
     "interco": "audit.change_purchaseline",
+    "b2b": "audit.change_productionline",
     "opening": "audit.change_stockcount",
     "closing": "audit.change_stockcount",
 }
@@ -85,6 +87,7 @@ UPLOADS = {
     "pos": ("POS item sales report", "Item Sales Report Summary export from the POS"),
     "purchases": ("Supplier purchases", "Xero invoice export"),
     "interco": ("Inter-company purchases", "Xero invoice export from sister companies"),
+    "b2b": ("B2B sales to sister brands", "Xero export of this outlet's own sales invoices to sister brands"),
     "opening": ("Opening stock count", "Stock count form, last month's closing"),
     "closing": ("Closing stock count", "Stock count form, end of this month"),
 }
@@ -95,6 +98,7 @@ UPLOAD_EXAMPLES = {
     "pos": "Latte - Hot, 120",
     "purchases": "INV-1102, 05/10/2026, Ladang Segar Sdn Bhd, MILK-1L, Fresh milk 1L, 24, 168.00",
     "interco": "PB-0042, 07/10/2026, Pastry Boys, PBCK-CROI, Croissant, 50, 250.00",
+    "b2b": "INV-2207, 09/10/2026, Eight Ounce Coffee, KFF0156, Spinach chicken sandwich (1 set x 5 portions), 2, 59.60",
     "opening": "MILK-1L, Fresh milk 1L, 12 (packs counted), leave the RM value blank to use the item master price. "
                "Made in-house: SF-CARAMEL, Caramel sauce, 1200 in Semi-finished Qty (grams, by weight), packs and RM blank",
     "closing": "MILK-1L, Fresh milk 1L, 12 (packs counted), leave the RM value blank to use the item master price. "
@@ -109,6 +113,8 @@ UPLOAD_TEMPLATES = {
                   "Quantity", "LineAmount"],
     "interco": ["InvoiceNumber", "InvoiceDate", "ContactName", "InventoryItemCode", "Description",
                 "Quantity", "LineAmount"],
+    "b2b": ["InvoiceNumber", "InvoiceDate", "ContactName", "InventoryItemCode", "Description",
+            "Quantity", "LineAmount"],
     "opening": ["SKU", "Item Name", "Counted Qty (packs)", "Total RM Value", "Semi-finished Qty"],
     "closing": ["SKU", "Item Name", "Counted Qty (packs)", "Total RM Value", "Semi-finished Qty"],
 }
@@ -187,7 +193,9 @@ def _context(audit, tab, user):
         "first_month": services.is_first_month(audit),
         "tolerance": float(audit.variance_tolerance),
     }
-    ctx["variance_outside"] = services.variance_outside(ctx["dash"], ctx["tolerance"])
+    # From the status, so a signed-off month keeps the verdict it was signed off with.
+    ctx["variance_outside"] = not status["within_tolerance"]
+    ctx["variance_pct_sales"] = services.variance_pct_of_sales(ctx["dash"])
     ctx["can_edit"] = {k: user.has_perm(p) and not audit.locked for k, p in LINE_PERMISSIONS.items()}
     services.store_summary(audit, ctx["dash"], status)
     return ctx
@@ -243,6 +251,8 @@ def upload(request, pk, kind):
         try:
             if kind == "pos":
                 report = importers.load_pos_sales(audit, f)
+            elif kind == "b2b":
+                report = importers.load_b2b_sales(audit, f)
             elif kind in ("purchases", "interco"):
                 source = "interco" if kind == "interco" else "supplier"
                 report = importers.load_purchases(audit, f, source=source)
@@ -379,7 +389,8 @@ def trends(request):
         audits = audits.filter(period__lte=f["to"])
     audits = list(audits[:1000])
     data = services.summaries(audits)
-    rows = [{"audit": a, **data[a.pk][0], "status": data[a.pk][1]} for a in audits]
+    rows = [{"audit": a, **data[a.pk][0], "status": data[a.pk][1],
+             "variance_pct_sales": services.variance_pct_of_sales(data[a.pk][0])} for a in audits]
     return render(request, "audit/trends.html", {
         "rows": rows, "f": f, "brands": access.brands_for(request.user), "outlets": access.outlets_for(request.user),
     })
@@ -423,6 +434,7 @@ def month_close(request):
     sales = counts(SaleLine.objects)
     purchases = counts(PurchaseLine.objects, "source")
     stock = counts(StockCount.objects, "kind")
+    b2b = counts(ProductionLine.objects.filter(kind="b2b"))
     status = services.summaries(audits.values())
     rows = []
     for o in outlets:
@@ -431,7 +443,7 @@ def month_close(request):
         if a:
             files = [
                 ("pos", sales.get(a.pk, 0)), ("purchases", purchases.get((a.pk, "supplier"), 0)),
-                ("interco", purchases.get((a.pk, "interco"), 0)),
+                ("interco", purchases.get((a.pk, "interco"), 0)), ("b2b", b2b.get(a.pk, 0)),
                 ("opening", stock.get((a.pk, "opening"), 0)), ("closing", stock.get((a.pk, "closing"), 0)),
             ]
         rows.append({"outlet": o, "audit": a, "files": files, "status": status[a.pk][1] if a else None})
@@ -505,15 +517,20 @@ def export_xlsx(request, pk):
         ("Status detail", "; ".join(status["reasons"]), None),
         ("Signed off", f"{audit.locked_at:%d/%m/%Y %H:%M} by {audit.locked_by or '-'}" if audit.locked and audit.locked_at
          else ("Yes" if audit.locked else "No"), None),
-        ("Total sales (POS, SST included)", dash["total_sales"], MONEY),
+        ("POS sales (SST included)", dash.get("pos_sales", dash["total_sales"]), MONEY),
+        ("B2B sales to sister brands", dash.get("b2b_sales", 0.0), MONEY),
+        ("Total sales (POS + B2B)", dash["total_sales"], MONEY),
         ("Theoretical COGS - F&B", dash["theoretical_fb"], MONEY),
         ("Theoretical COGS - all categories", dash["theoretical_all"], MONEY),
         ("Actual COGS - F&B", dash["actual_fb"], MONEY),
         ("Theoretical F&B COGS % of sales", dash["theoretical_fb_pct"], PCT),
         ("Actual F&B COGS % of sales", dash["actual_fb_pct"], PCT),
         ("Variance - F&B", dash["variance_fb"], MONEY),
+        ("Variance % of sales (tested against the tolerance)", services.variance_pct_of_sales(dash), PCT),
         ("Variance % of theoretical", dash["variance_fb_pct"], PCT),
-        ("Variance tolerance", float(audit.variance_tolerance), PCT),
+        ("Gross leakage - F&B (used more than the recipes say)", dash.get("leakage_total", 0.0), MONEY),
+        ("Offsets - F&B (used less than the recipes say)", dash.get("offsets_total", 0.0), MONEY),
+        ("Variance tolerance (% of sales)", float(audit.variance_tolerance), PCT),
     ]:
         put(ws, [label, value], [None, fmt])
         ws.cell(ws.max_row, 1).font = Font(bold=True)
@@ -534,14 +551,21 @@ def export_xlsx(request, pk):
             r.purchases, r.closing, r.actual_cost, r.variance, r.variance_pct, r.variance_qty, r.base_uom,
             r.opening_sf, r.closing_sf]
            for r in result.variance])
-    sheet("Top leakage", ["SKU", "Item", "Leakage", "Share of F&B leakage"], [None, None, MONEY, PCT],
-          [[r["sku"], r["name"], r["variance"], r["share"]] for r in dash["top_leakage"]])
+    top_cols = ["Opening", "Purchases", "Closing", "Actual", "Theoretical"]
+    sheet("Top leakage", ["SKU", "Item", *top_cols, "Leakage", "Share of F&B leakage"], [None, None] + [MONEY] * 6 + [PCT],
+          [[r["sku"], r["name"], r.get("opening"), r.get("purchases"), r.get("closing"), r.get("actual"),
+            r.get("theoretical"), r["variance"], r.get("share")] for r in dash["top_leakage"]])
+    sheet("Top underuse", ["SKU", "Item", *top_cols, "Variance", "Share of F&B underuse"], [None, None] + [MONEY] * 6 + [PCT],
+          [[r["sku"], r["name"], r.get("opening"), r.get("purchases"), r.get("closing"), r.get("actual"),
+            r.get("theoretical"), r["variance"], r.get("share")] for r in dash["top_gains"]])
     sheet("Menu engineering", ["SKU", "Menu item", "Category", "Price (SST incl.)", "Cost / portion", "Margin", "Units",
                                "Total contribution", "Total cost", "Margin %", "Mix % in category",
-                               "Category avg margin", "Popularity threshold", "Class", "Total sales"],
-          [None, None, None, MONEY, MONEY, MONEY, QTY, MONEY, MONEY, PCT, PCT, MONEY, PCT, None, MONEY],
+                               "Category avg margin", "Popularity threshold", "Class", "Total sales",
+                               "Contribution - cost", "Profit (H/L)", "Popularity (H/L)"],
+          [None, None, None, MONEY, MONEY, MONEY, QTY, MONEY, MONEY, PCT, PCT, MONEY, PCT, None, MONEY, MONEY, None, None],
           [[r.sku, r.name, r.category, r.price, r.cost, r.margin, r.units, r.total_contribution, r.total_cost,
-            r.margin_pct, r.mix_share, r.cat_avg_margin, r.popularity_threshold, r.menu_class, r.total_sales]
+            r.margin_pct, r.mix_share, r.cat_avg_margin, r.popularity_threshold, r.menu_class, r.total_sales,
+            r.net_after_cost, r.profit_category, r.popularity_category]
            for r in result.menu])
     sheet("Consumption", ["SKU", "Item", "Category", "Net", "Unit", "Yield", "Gross", "Cost per unit", "Theoretical", "Status"],
           [None, None, None, QTY, None, PCT, QTY, COST, MONEY, None],
@@ -698,6 +722,9 @@ class ProductionLineForm(forms.ModelForm):
         super().__init__(*a, **kw)
         self.audit = audit
         self.fields["component"].widget.attrs["list"] = "component-skus"
+        if self.instance.kind != "b2b":
+            # B2B sales come from the invoice upload (which replaces them), not from typed lines.
+            self.fields["kind"].choices = [c for c in self.fields["kind"].choices if c[0] != "b2b"]
         if self.instance.pk:
             self.fields["component"].initial = self.instance.sku
 

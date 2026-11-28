@@ -153,7 +153,7 @@ class FlowTests(TestCase):
 
         resp = self.client.get(reverse("audit_export", args=[self.audit.pk]))
         wb = openpyxl.load_workbook(BytesIO(resp.content))
-        self.assertEqual(wb.sheetnames, ["Dashboard", "Variance", "Top leakage", "Menu engineering", "Consumption",
+        self.assertEqual(wb.sheetnames, ["Dashboard", "Variance", "Top leakage", "Top underuse", "Menu engineering", "Consumption",
                                          "Checks", "Purchases", "Stock counts"])
 
         self.assertEqual(self.client.get(reverse("trends")).status_code, 200)
