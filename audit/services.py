@@ -71,6 +71,14 @@ def _substitutions(brand: Brand) -> list[engine.Substitution]:
     return [engine.Substitution(s.original.sku, s.substitute.sku, float(s.factor)) for s in own + group]
 
 
+def standing_swaps(brand: Brand) -> list[Substitution]:
+    """The brand and group swaps that apply to this brand, for display."""
+    qs = Substitution.objects.filter(active=True).select_related("original", "substitute", "brand")
+    own = list(qs.filter(brand=brand))
+    mapped = {s.original_id for s in own}
+    return own + [s for s in qs.filter(brand__isnull=True) if s.original_id not in mapped]
+
+
 def brand_input(brand: Brand) -> engine.EngineInput:
     """Master data only, no period data. Used for recipe and menu costing."""
     return engine.EngineInput(
@@ -120,7 +128,23 @@ def build_engine_input(audit: AuditPeriod, masters: dict | None = None) -> engin
     inp.opening_sf_qty = dict(sf_qty["opening"])
     inp.closing_sf_qty = dict(sf_qty["closing"])
     inp.b2b_sales = b2b_sales
+    inp.substitutions = month_substitutions(audit, inp.substitutions)
     return inp
+
+
+def month_substitutions(audit: AuditPeriod, standing: list[engine.Substitution]) -> list[engine.Substitution]:
+    """The brand and group swaps, changed by this audit's own swaps (an item ran out this month).
+
+    A month swap with a substitute replaces the standing swap for that item; one without a substitute
+    turns the standing swap off, so recipes use the item as written.
+    """
+    swaps = list(audit.swaps.select_related("original", "substitute")) if audit.pk else []
+    if not swaps:
+        return list(standing)
+    changed = {s.original.sku for s in swaps}
+    out = [s for s in standing if s.original_sku not in changed]
+    out += [engine.Substitution(s.original.sku, s.substitute.sku, float(s.factor)) for s in swaps if s.substitute_id]
+    return out
 
 
 def engine_input_to_json(inp: engine.EngineInput) -> dict:

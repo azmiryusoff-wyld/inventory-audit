@@ -286,10 +286,10 @@ class PermissionAndExportTests(Base):
         self.client.force_login(chef)
         self.assertEqual(self.post_file("pos", "pos.csv", POS_CSV).status_code, 302)
         self.assertEqual(self.audit.sales.count(), 3)
-        for kind in ("purchases", "interco", "opening", "closing"):
+        for kind in ("purchases", "opening", "closing"):
             self.assertEqual(self.post_file(kind, "f.csv", COUNT_CSV).status_code, 403, kind)
         page = self.client.get(reverse("audit_detail", args=[self.audit.pk]))
-        self.assertContains(page, "Uploaded by procurement", count=4)
+        self.assertContains(page, "Uploaded by procurement", count=3)
 
     def test_staff_without_a_role_cannot_upload(self):
         user = User.objects.create_user("nogroup", password="pw", is_staff=True)

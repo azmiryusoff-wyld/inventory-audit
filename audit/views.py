@@ -14,7 +14,7 @@ from django.views.decorators.http import require_POST
 
 from . import access, history, importers, services
 from .models import (
-    AuditPeriod, Item, MenuItem, Outlet, PosAlias, ProductionLine, PurchaseLine, SaleLine, SemiFinished, StockCount,
+    AuditPeriod, AuditSubstitution, Item, MenuItem, Outlet, PosAlias, ProductionLine, PurchaseLine, SaleLine, SemiFinished, StockCount,
 )
 
 
@@ -77,7 +77,6 @@ MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 UPLOAD_PERMISSIONS = {
     "pos": "audit.change_saleline",
     "purchases": "audit.change_purchaseline",
-    "interco": "audit.change_purchaseline",
     "b2b": "audit.change_productionline",
     "opening": "audit.change_stockcount",
     "closing": "audit.change_stockcount",
@@ -86,7 +85,6 @@ UPLOAD_PERMISSIONS = {
 UPLOADS = {
     "pos": ("POS item sales report", "Item Sales Report Summary export from the POS"),
     "purchases": ("Supplier purchases", "Xero invoice export"),
-    "interco": ("Inter-company purchases", "Xero invoice export from sister companies"),
     "b2b": ("B2B sales to sister brands", "Xero export of this outlet's own sales invoices to sister brands"),
     "opening": ("Opening stock count", "Stock count form, last month's closing"),
     "closing": ("Closing stock count", "Stock count form, end of this month"),
@@ -97,7 +95,6 @@ UPLOADS = {
 UPLOAD_EXAMPLES = {
     "pos": "Latte - Hot, 120",
     "purchases": "INV-1102, 05/10/2026, Ladang Segar Sdn Bhd, MILK-1L, Fresh milk 1L, 24, 168.00",
-    "interco": "PB-0042, 07/10/2026, Pastry Boys, PBCK-CROI, Croissant, 50, 250.00",
     "b2b": "INV-2207, 09/10/2026, Eight Ounce Coffee, KFF0156, Spinach chicken sandwich (1 set x 5 portions), 2, 59.60",
     "opening": "MILK-1L, Fresh milk 1L, 12 (packs counted), leave the RM value blank to use the item master price. "
                "Made in-house: SF-CARAMEL, Caramel sauce, 1200 in Semi-finished Qty (grams, by weight), packs and RM blank",
@@ -111,8 +108,6 @@ UPLOAD_TEMPLATES = {
     "pos": ["Full Name", "Quantity"],
     "purchases": ["InvoiceNumber", "InvoiceDate", "ContactName", "InventoryItemCode", "Description",
                   "Quantity", "LineAmount"],
-    "interco": ["InvoiceNumber", "InvoiceDate", "ContactName", "InventoryItemCode", "Description",
-                "Quantity", "LineAmount"],
     "b2b": ["InvoiceNumber", "InvoiceDate", "ContactName", "InventoryItemCode", "Description",
             "Quantity", "LineAmount"],
     "opening": ["SKU", "Item Name", "Counted Qty (packs)", "Total RM Value", "Semi-finished Qty"],
@@ -214,6 +209,8 @@ def audit_detail(request, pk, tab="overview"):
         for c in ctx["counts_rows"]:
             c.sf_value = sf_values.get((c.kind, c.sku), 0.0)
         ctx["production"] = audit.production.select_related("menu_item", "semi_finished", "item")
+        ctx["swaps"] = audit.swaps.select_related("original", "substitute").order_by("original__sku")
+        ctx["standing_swaps"] = services.standing_swaps(audit.brand)
     elif tab == "variance":
         rows = result_rows = ctx["result"].variance
         ctx["variance_totals"] = {
@@ -253,9 +250,8 @@ def upload(request, pk, kind):
                 report = importers.load_pos_sales(audit, f)
             elif kind == "b2b":
                 report = importers.load_b2b_sales(audit, f)
-            elif kind in ("purchases", "interco"):
-                source = "interco" if kind == "interco" else "supplier"
-                report = importers.load_purchases(audit, f, source=source)
+            elif kind == "purchases":
+                report = importers.load_purchases(audit, f, source="supplier")
             else:
                 report = importers.load_stock_count(audit, f, kind)
         except ValueError as exc:
@@ -443,7 +439,7 @@ def month_close(request):
         if a:
             files = [
                 ("pos", sales.get(a.pk, 0)), ("purchases", purchases.get((a.pk, "supplier"), 0)),
-                ("interco", purchases.get((a.pk, "interco"), 0)), ("b2b", b2b.get(a.pk, 0)),
+                ("b2b", b2b.get(a.pk, 0)),
                 ("opening", stock.get((a.pk, "opening"), 0)), ("closing", stock.get((a.pk, "closing"), 0)),
             ]
         rows.append({"outlet": o, "audit": a, "files": files, "status": status[a.pk][1] if a else None})
@@ -602,6 +598,7 @@ LINE_PERMISSIONS = {
     "purchase": "audit.change_purchaseline",
     "count": "audit.change_stockcount",
     "production": "audit.change_productionline",
+    "swap": "audit.change_auditsubstitution",
 }
 
 
@@ -755,16 +752,54 @@ class ProductionLineForm(forms.ModelForm):
             super()._post_clean()
 
 
+class AuditSubstitutionForm(forms.ModelForm):
+    original_sku = forms.CharField(label="Item in the recipe", help_text="The item the recipes call for (it ran out).")
+    substitute_sku = forms.CharField(
+        label="Bought instead", required=False,
+        help_text="The item used in its place this month. Leave empty to turn off the standing swap for this "
+                  "item this month, so recipes use it as written.")
+
+    class Meta:
+        model = AuditSubstitution
+        fields = ["original_sku", "substitute_sku", "factor", "note"]
+        labels = {"factor": "Units per 1 recipe unit"}
+
+    def __init__(self, *a, audit, **kw):
+        super().__init__(*a, **kw)
+        self.audit = audit
+        for f in ("original_sku", "substitute_sku"):
+            self.fields[f].widget.attrs["list"] = "item-skus"
+        if self.instance.pk:
+            self.fields["original_sku"].initial = self.instance.original.sku
+            self.fields["substitute_sku"].initial = self.instance.substitute.sku if self.instance.substitute_id else ""
+
+    def clean_original_sku(self):
+        item = _find_sku(self.cleaned_data["original_sku"])
+        clash = AuditSubstitution.objects.filter(audit=self.audit, original=item).exclude(pk=self.instance.pk).first()
+        if clash:
+            raise forms.ValidationError(f"{item.sku} already has a swap this month ({clash}). Edit that one instead.")
+        self.instance.original = item
+        return item.sku
+
+    def clean_substitute_sku(self):
+        sku = (self.cleaned_data.get("substitute_sku") or "").strip()
+        self.instance.substitute = _find_sku(sku) if sku else None
+        return self.instance.substitute.sku if self.instance.substitute else ""
+
+
 LINE_FORMS = {
     "sale": (SaleLineForm, "POS sales line", ["pos_name", "menu_item", "qty"]),
     "purchase": (PurchaseLineForm, "Purchase line",
                  ["source", "invoice_date", "invoice_number", "supplier", "sku", "description", "qty", "value"]),
     "count": (StockCountForm, "Stock count line", ["kind", "sku", "description", "value", "qty"]),
     "production": (ProductionLineForm, "Production / wastage line", ["kind", "sku", "qty", "customer", "note"]),
+    "swap": (AuditSubstitutionForm, "Swap this month", ["original", "substitute", "factor", "note"]),
 }
 
 
 def _line_repr(kind, line):
+    if kind == "swap":
+        return str(line)
     if kind == "sale":
         return line.pos_name
     if kind == "purchase":
@@ -813,7 +848,7 @@ def line_edit(request, pk, kind, line_pk=None):
         messages.success(request, f"{label} {'added' if adding else 'saved'}: {_line_repr(kind, line)}.")
         return redirect(back)
     ctx = {"audit": audit, "form": form, "label": label, "line": line, "kind": kind, "back": back}
-    if kind in ("purchase", "count", "production"):
+    if kind in ("purchase", "count", "production", "swap"):
         ctx["item_skus"] = list(Item.objects.filter(active=True).values_list("sku", "name"))
     if kind == "count":
         ctx["item_skus"] = list(SemiFinished.objects.filter(brand=audit.brand, active=True)

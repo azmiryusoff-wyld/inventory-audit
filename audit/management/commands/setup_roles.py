@@ -6,17 +6,17 @@ from django.core.management.base import BaseCommand
 ROLES = {
     "Chef": {
         "change": ["semifinished", "menuitem", "posalias", "recipe", "recipeline", "substitution",
-                   "auditperiod", "saleline", "productionline"],
+                   "auditperiod", "saleline", "productionline", "auditsubstitution"],
         "view": ["brand", "outlet", "item", "purchaseline", "stockcount"],
     },
     "Procurement": {
-        "change": ["auditperiod", "purchaseline", "stockcount", "saleline", "productionline"],
+        "change": ["auditperiod", "purchaseline", "stockcount", "saleline", "productionline", "auditsubstitution"],
         "view": ["brand", "outlet", "item", "semifinished", "menuitem", "recipe", "recipeline", "substitution"],
     },
     "Outlet manager": {
         "change": [],
         "view": ["brand", "outlet", "item", "semifinished", "menuitem", "recipe", "recipeline", "substitution",
-                 "auditperiod", "saleline", "productionline", "purchaseline", "stockcount"],
+                 "auditperiod", "saleline", "productionline", "purchaseline", "stockcount", "auditsubstitution"],
         "scoped": True,
     },
 }
