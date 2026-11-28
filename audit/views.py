@@ -561,11 +561,11 @@ def export_xlsx(request, pk):
     sheet("Menu engineering", ["SKU", "Menu item", "Category", "Price (SST incl.)", "Cost / portion", "Margin", "Units",
                                "Total contribution", "Total cost", "Margin %", "Mix % in category",
                                "Category avg margin", "Popularity threshold", "Class", "Total sales",
-                               "Contribution - cost", "Profit (H/L)", "Popularity (H/L)"],
-          [None, None, None, MONEY, MONEY, MONEY, QTY, MONEY, MONEY, PCT, PCT, MONEY, PCT, None, MONEY, MONEY, None, None],
+                               "Profit (H/L)", "Popularity (H/L)"],
+          [None, None, None, MONEY, MONEY, MONEY, QTY, MONEY, MONEY, PCT, PCT, MONEY, PCT, None, MONEY, None, None],
           [[r.sku, r.name, r.category, r.price, r.cost, r.margin, r.units, r.total_contribution, r.total_cost,
             r.margin_pct, r.mix_share, r.cat_avg_margin, r.popularity_threshold, r.menu_class, r.total_sales,
-            r.net_after_cost, r.profit_category, r.popularity_category]
+            r.profit_category, r.popularity_category]
            for r in result.menu])
     sheet("Consumption", ["SKU", "Item", "Category", "Net", "Unit", "Yield", "Gross", "Cost per unit", "Theoretical", "Status"],
           [None, None, None, QTY, None, PCT, QTY, COST, MONEY, None],

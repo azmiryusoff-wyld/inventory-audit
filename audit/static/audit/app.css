@@ -234,7 +234,7 @@ tr[data-empty] td, td.empty { text-align: center; padding: 28px 14px; color: var
 .pill::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; opacity: .85; }
 .PASS, .OK, .STAR { background: var(--good-soft); color: var(--good); border-color: #c5e8d3; }
 .REVIEW, .DOG, .OUTSIDE { background: var(--bad-soft); color: var(--bad); border-color: #f5c8c8; }
-.INCOMPLETE, .NORECIPE { background: #f1f5f9; color: var(--muted); border-color: var(--line); }
+.INCOMPLETE, .NORECIPE, .FREE { background: #f1f5f9; color: var(--muted); border-color: var(--line); }
 .LOCKED { background: var(--info-soft); color: var(--info); border-color: #cdd9f8; }
 .PLOWHORSE, .PUZZLE { background: var(--warn-soft); color: var(--warn); border-color: #f6dcb0; }
 h1 .pill { font-size: 12.5px; letter-spacing: 0; }
