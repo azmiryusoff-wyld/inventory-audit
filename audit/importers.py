@@ -1006,6 +1006,29 @@ def load_stock_count(audit, file, kind, replace=True) -> ImportReport:
     return report
 
 
+def _adopt_respaced_skus(existing, workbook_skus) -> int:
+    """Rename stored SKUs that the workbook now writes with different spacing ("MEP 100" -> "MEP100").
+
+    Without this a re-import would add a second, recipe-less copy of each item next to the old one,
+    and counts, recipes and history linked to the old copy would be split from the new one.
+    Only a one-to-one match is renamed; a SKU the workbook still uses as written is left alone.
+    """
+    wanted = {s for s in workbook_skus if s}
+    by_key: dict[str, list[str]] = {}
+    for s in wanted:
+        by_key.setdefault(s.replace(" ", "").upper(), []).append(s)
+    renamed = 0
+    for obj in existing:
+        if obj.sku in wanted:
+            continue
+        new = by_key.get(obj.sku.replace(" ", "").upper(), [])
+        if len(new) == 1 and not existing.filter(sku=new[0]).exists():
+            obj.sku = new[0]
+            obj.save(update_fields=["sku"])
+            renamed += 1
+    return renamed
+
+
 @transaction.atomic
 def load_workbook_masters(brand, file) -> dict[str, ImportReport]:
     """One-off migration: read a brand's workbook (.xlsx download) into the app.
@@ -1027,6 +1050,8 @@ def load_workbook_masters(brand, file) -> dict[str, ImportReport]:
     rows = tab("21 SF Master")
     if rows:
         _, cols = find_header(rows, ["SF SKU", "SF Name"])
+        _adopt_respaced_skus(SemiFinished.objects.filter(brand=brand),
+                             [clean(cell(r, cols, "SF SKU")) for r in rows[1:]])
         for r in rows[1:]:
             sku = clean(cell(r, cols, "SF SKU"))
             if not sku:
@@ -1042,6 +1067,8 @@ def load_workbook_masters(brand, file) -> dict[str, ImportReport]:
     rows = tab("23 Menu Master")
     if rows:
         _, cols = find_header(rows, ["Menu SKU", "Menu Name"])
+        _adopt_respaced_skus(MenuItem.objects.filter(brand=brand),
+                             [clean(cell(r, cols, "Menu SKU")) for r in rows[1:]])
         seen_menu = set()
         for r in rows[1:]:
             sku = clean(cell(r, cols, "Menu SKU"))

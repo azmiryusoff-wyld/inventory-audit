@@ -213,3 +213,30 @@ class ReportExtrasTests(TestCase):
         self.assertEqual((latte.popularity_category, latte.profit_category), ("H", "H"))
         self.assertEqual((glass.popularity_category, glass.profit_category), ("L", "L"))
         self.assertAlmostEqual(latte.net_after_cost, latte.total_contribution - latte.total_cost)
+
+
+class RespacedSkuReimportTests(Base):
+    """The new workbook writes semi-finished SKUs without the space ("KFF 0156" -> "KFF0156")."""
+
+    def test_reimport_renames_instead_of_adding_a_recipe_less_copy(self):
+        old = SemiFinished.objects.create(brand=self.brand, sku="MEP 100", name="MEP TOMATO SALSA", output_uom="G")
+        Recipe.objects.create(brand=self.brand, semi_finished=old, batch_yield=1000)
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "21 SF Master"
+        ws.append(["SF SKU", "SF Name", "Output UOM"])
+        ws.append(["MEP100", "MEP TOMATO SALSA", "G"])
+        ws.append(["KFF0156", "Spinach sandwich", "PORTION"])
+        rm = wb.create_sheet("22 Recipe Master")
+        rm.append(["Parent SKU", "Parent Name", "Component SKU", "Component Name", "Component Type",
+                   "Parent Batch Yield Qty", "Component Qty (per batch)"])
+        rm.append(["MEP100", "MEP TOMATO SALSA", "SUGAR", "SUGAR 1KG", "RAW", 1000, 50])
+        rm.append(["KFF0156", "Spinach sandwich", "SUGAR", "SUGAR 1KG", "RAW", 5, 100])
+        buf = BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+        importers.load_workbook_masters(self.brand, buf)
+        self.assertEqual(sorted(SemiFinished.objects.filter(brand=self.brand).values_list("sku", flat=True)),
+                         ["KFF0156", "MEP100"])
+        old.refresh_from_db()
+        self.assertEqual(old.sku, "MEP100")  # same row, so its history stays linked
