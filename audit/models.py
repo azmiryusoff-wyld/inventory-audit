@@ -266,6 +266,39 @@ class Substitution(models.Model):
                                   "to the final item instead.")
 
 
+
+class AuditSubstitution(models.Model):
+    """A swap for one month at one outlet: an item ran out and another was bought instead.
+
+    With a substitute: recipes use the substitute instead of the original this month (it replaces any
+    standing swap for that original). Without one: the standing brand or group swap for the original
+    is turned off this month, so recipes use the original as written.
+    """
+
+    audit = models.ForeignKey("AuditPeriod", on_delete=models.CASCADE, related_name="swaps")
+    original = models.ForeignKey(Item, on_delete=models.PROTECT, related_name="+")
+    substitute = models.ForeignKey(Item, null=True, blank=True, on_delete=models.PROTECT, related_name="+")
+    factor = models.DecimalField(
+        max_digits=12, decimal_places=6, default=Decimal("1"),
+        validators=[MinValueValidator(Decimal("0.000001"), "The factor must be above zero.")],
+        help_text="Substitute units per 1 original unit",
+    )
+    note = models.CharField(max_length=300, blank=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["audit", "original"], name="one_swap_per_item_per_audit")]
+
+    @property
+    def sku(self):
+        return self.original.sku
+
+    def __str__(self):
+        return f"{self.original.sku} -> {self.substitute.sku if self.substitute_id else '(standing swap off)'}"
+
+    def clean(self):
+        if self.original_id and self.substitute_id and self.original_id == self.substitute_id:
+            raise ValidationError("An item can't be swapped for itself.")
+
 class AuditPeriod(models.Model):
     """One outlet, one month."""
 

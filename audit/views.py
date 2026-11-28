@@ -14,7 +14,7 @@ from django.views.decorators.http import require_POST
 
 from . import access, history, importers, services
 from .models import (
-    AuditPeriod, Item, MenuItem, Outlet, PosAlias, ProductionLine, PurchaseLine, SaleLine, SemiFinished, StockCount,
+    AuditPeriod, AuditSubstitution, Item, MenuItem, Outlet, PosAlias, ProductionLine, PurchaseLine, SaleLine, SemiFinished, StockCount,
 )
 
 
@@ -214,6 +214,8 @@ def audit_detail(request, pk, tab="overview"):
         for c in ctx["counts_rows"]:
             c.sf_value = sf_values.get((c.kind, c.sku), 0.0)
         ctx["production"] = audit.production.select_related("menu_item", "semi_finished", "item")
+        ctx["swaps"] = audit.swaps.select_related("original", "substitute").order_by("original__sku")
+        ctx["standing_swaps"] = services.standing_swaps(audit.brand)
     elif tab == "variance":
         rows = result_rows = ctx["result"].variance
         ctx["variance_totals"] = {
@@ -602,6 +604,7 @@ LINE_PERMISSIONS = {
     "purchase": "audit.change_purchaseline",
     "count": "audit.change_stockcount",
     "production": "audit.change_productionline",
+    "swap": "audit.change_auditsubstitution",
 }
 
 
@@ -755,16 +758,54 @@ class ProductionLineForm(forms.ModelForm):
             super()._post_clean()
 
 
+class AuditSubstitutionForm(forms.ModelForm):
+    original_sku = forms.CharField(label="Item in the recipe", help_text="The item the recipes call for (it ran out).")
+    substitute_sku = forms.CharField(
+        label="Bought instead", required=False,
+        help_text="The item used in its place this month. Leave empty to turn off the standing swap for this "
+                  "item this month, so recipes use it as written.")
+
+    class Meta:
+        model = AuditSubstitution
+        fields = ["original_sku", "substitute_sku", "factor", "note"]
+        labels = {"factor": "Units per 1 recipe unit"}
+
+    def __init__(self, *a, audit, **kw):
+        super().__init__(*a, **kw)
+        self.audit = audit
+        for f in ("original_sku", "substitute_sku"):
+            self.fields[f].widget.attrs["list"] = "item-skus"
+        if self.instance.pk:
+            self.fields["original_sku"].initial = self.instance.original.sku
+            self.fields["substitute_sku"].initial = self.instance.substitute.sku if self.instance.substitute_id else ""
+
+    def clean_original_sku(self):
+        item = _find_sku(self.cleaned_data["original_sku"])
+        clash = AuditSubstitution.objects.filter(audit=self.audit, original=item).exclude(pk=self.instance.pk).first()
+        if clash:
+            raise forms.ValidationError(f"{item.sku} already has a swap this month ({clash}). Edit that one instead.")
+        self.instance.original = item
+        return item.sku
+
+    def clean_substitute_sku(self):
+        sku = (self.cleaned_data.get("substitute_sku") or "").strip()
+        self.instance.substitute = _find_sku(sku) if sku else None
+        return self.instance.substitute.sku if self.instance.substitute else ""
+
+
 LINE_FORMS = {
     "sale": (SaleLineForm, "POS sales line", ["pos_name", "menu_item", "qty"]),
     "purchase": (PurchaseLineForm, "Purchase line",
                  ["source", "invoice_date", "invoice_number", "supplier", "sku", "description", "qty", "value"]),
     "count": (StockCountForm, "Stock count line", ["kind", "sku", "description", "value", "qty"]),
     "production": (ProductionLineForm, "Production / wastage line", ["kind", "sku", "qty", "customer", "note"]),
+    "swap": (AuditSubstitutionForm, "Swap this month", ["original", "substitute", "factor", "note"]),
 }
 
 
 def _line_repr(kind, line):
+    if kind == "swap":
+        return str(line)
     if kind == "sale":
         return line.pos_name
     if kind == "purchase":
@@ -813,7 +854,7 @@ def line_edit(request, pk, kind, line_pk=None):
         messages.success(request, f"{label} {'added' if adding else 'saved'}: {_line_repr(kind, line)}.")
         return redirect(back)
     ctx = {"audit": audit, "form": form, "label": label, "line": line, "kind": kind, "back": back}
-    if kind in ("purchase", "count", "production"):
+    if kind in ("purchase", "count", "production", "swap"):
         ctx["item_skus"] = list(Item.objects.filter(active=True).values_list("sku", "name"))
     if kind == "count":
         ctx["item_skus"] = list(SemiFinished.objects.filter(brand=audit.brand, active=True)

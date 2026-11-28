@@ -10,6 +10,15 @@
 {% empty %}<tr data-empty><td colspan="4" class="muted">No POS sales uploaded.</td></tr>{% endfor %}
 </table></div>
 
+<div class="section-head"><h2 id="swap">Swaps this month <span class="muted">({{ swaps|length }})</span></h2>{% if can_edit.swap %}<a class="btn secondary sm" href="{% url 'audit_line_new' audit.pk 'swap' %}">{% icon "plus" 14 %} Add swap</a>{% endif %}</div>
+<p class="muted">When an item runs out and another is bought instead, add a swap here so this month's recipes use what was really bought. It applies to this audit only. A swap with no "bought instead" turns off a standing swap for this month.</p>
+<div class="scroll"><table class="sortable searchable"><tr><th>Item in the recipe</th><th>Used this month</th><th class="n">Factor</th><th>Note</th>{% if can_edit.swap %}<th></th>{% endif %}</tr>
+{% for s in swaps %}<tr><td>{{ s.original.sku }} {{ s.original.name }}</td><td>{% if s.substitute %}{{ s.substitute.sku }} {{ s.substitute.name }}{% else %}<span class="pill INCOMPLETE">standing swap off</span> as in the recipe{% endif %}</td><td class="n">{% if s.substitute %}{{ s.factor|num:3 }}{% endif %}</td><td>{{ s.note }}</td>{% if can_edit.swap %}<td><a href="{% url 'audit_line_edit' audit.pk 'swap' s.pk %}">Edit</a></td>{% endif %}</tr>
+{% empty %}<tr data-empty><td colspan="5" class="muted">No swaps for this month.</td></tr>{% endfor %}
+</table></div>
+{% if standing_swaps %}<p class="muted">Standing swaps for {{ audit.brand }} (Master data &gt; Substitutions), used every month unless changed above:
+{% for s in standing_swaps %}{{ s.original.sku }} &rarr; {{ s.substitute.sku }}{% if not s.brand %} (group-wide){% endif %}{% if not forloop.last %}; {% endif %}{% endfor %}.</p>{% endif %}
+
 <div class="section-head"><h2 id="production">Production, transfers, wastage <span class="muted">({{ production|length }})</span></h2>{% if can_edit.production %}<a class="btn secondary sm" href="{% url 'audit_line_new' audit.pk 'production' %}">{% icon "plus" 14 %} Add line</a>{% endif %}</div>
 <div class="scroll"><table class="sortable searchable"><tr><th>Type</th><th>SKU</th><th class="n">Qty</th><th>Unit</th><th>Customer / brand</th><th>Note</th><th class="n">Invoiced</th><th class="n">Sales ({{ currency }})</th>{% if can_edit.production %}<th></th>{% endif %}</tr>
 {% for p in production %}<tr><td>{{ p.get_kind_display }}</td><td>{{ p.sku }}</td><td class="n">{{ p.qty|num }}</td><td>{{ p.unit }}</td><td>{{ p.customer }}</td><td>{{ p.note }}{% if p.invoice_number %} ({{ p.invoice_number }}){% endif %}</td><td class="n">{% if p.kind == "b2b" %}{{ p.invoice_qty|num }}{% endif %}</td><td class="n">{% if p.kind == "b2b" %}{{ p.sales_value|money }}{% endif %}</td>{% if can_edit.production %}<td><a href="{% url 'audit_line_edit' audit.pk 'production' p.pk %}">Edit</a></td>{% endif %}</tr>
