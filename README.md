@@ -40,7 +40,7 @@ Differences from the sheet, on purpose:
   SKUs not in the item master. Menu items with no price count as free (RM0) and are not flagged.
 * POS names are matched case- and spacing-insensitively, and a menu item can have extra
   POS names ("aliases") for renamed items.
-* Inter-company purchases have their own upload and count towards actual cost.
+* Inter-company purchases have no separate upload: include them in the supplier purchases export (or add a line by hand on Uploaded data).
 * Invoice lines described as a handling charge are skipped (set `PURCHASE_SKIP_DESCRIPTIONS` to change the list).
 * Some central item master rows are menu or semi-finished items with a typed price. When such an
   item also has a recipe, the recipe is used and the typed price is ignored, so it is not counted twice.

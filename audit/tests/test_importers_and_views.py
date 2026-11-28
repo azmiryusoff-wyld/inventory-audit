@@ -210,7 +210,6 @@ class FlowTests(TestCase):
         sample = {
             "pos": "Latte - Hot,2",
             "purchases": "INV1,2026-10-01,Supplier,COFFEE,Beans,1,100",
-            "interco": "INV2,2026-10-02,Sister Co,MILK,Milk,2,8",
             "opening": "COFFEE,Beans,,RM10.00",
             "closing": "COFFEE,Beans,,RM5.00",
         }
@@ -222,7 +221,9 @@ class FlowTests(TestCase):
             self.post_file(kind, f"{kind}.csv", header + row + "\n")
         self.assertEqual(self.audit.sales.get().qty, 2)
         self.assertEqual(self.audit.purchases.filter(source="supplier").get().value, 100)
-        self.assertEqual(self.audit.purchases.filter(source="interco").get().value, 8)
+        # No separate inter-company upload any more (the chef's request, 28 Nov).
+        self.assertNotIn("interco", UPLOADS)
+        self.assertEqual(self.client.post(reverse("audit_upload", args=[self.audit.pk, "interco"])).status_code, 404)
         self.assertEqual(self.audit.stock_counts.get(kind="opening").value, 10)
         self.assertEqual(self.audit.stock_counts.get(kind="closing").value, 5)
         self.assertEqual(self.client.get("/templates/nope.csv").status_code, 404)

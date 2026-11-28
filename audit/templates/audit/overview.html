@@ -30,7 +30,7 @@
       <div class="u-head">
         <span class="u-icon">{% icon "file" 17 %}</span>
         <div><div class="u-title">{{ info.0 }}</div><div class="u-desc">{{ info.1 }}</div></div>
-        <span class="u-status">{% if v %}<span class="pill PASS">{{ v }} line{{ v|pluralize }}</span>{% elif key == "interco" or key == "b2b" %}<span class="pill INCOMPLETE">Optional · 0 lines</span>{% else %}<span class="pill INCOMPLETE">Missing · 0 lines</span>{% endif %}</span>
+        <span class="u-status">{% if v %}<span class="pill PASS">{{ v }} line{{ v|pluralize }}</span>{% elif key == "b2b" %}<span class="pill INCOMPLETE">Optional · 0 lines</span>{% else %}<span class="pill INCOMPLETE">Missing · 0 lines</span>{% endif %}</span>
       </div>
       {% if key == "opening" and first_month and not audit.locked and not v %}
       <div class="msg warning">{% icon "info" 16 %}<div class="msg-body">First month for this outlet in the app: upload last month's closing count from the old workbook as opening stock. From next month it is filled in automatically.</div></div>

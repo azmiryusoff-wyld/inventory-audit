@@ -77,7 +77,6 @@ MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 UPLOAD_PERMISSIONS = {
     "pos": "audit.change_saleline",
     "purchases": "audit.change_purchaseline",
-    "interco": "audit.change_purchaseline",
     "b2b": "audit.change_productionline",
     "opening": "audit.change_stockcount",
     "closing": "audit.change_stockcount",
@@ -86,7 +85,6 @@ UPLOAD_PERMISSIONS = {
 UPLOADS = {
     "pos": ("POS item sales report", "Item Sales Report Summary export from the POS"),
     "purchases": ("Supplier purchases", "Xero invoice export"),
-    "interco": ("Inter-company purchases", "Xero invoice export from sister companies"),
     "b2b": ("B2B sales to sister brands", "Xero export of this outlet's own sales invoices to sister brands"),
     "opening": ("Opening stock count", "Stock count form, last month's closing"),
     "closing": ("Closing stock count", "Stock count form, end of this month"),
@@ -97,7 +95,6 @@ UPLOADS = {
 UPLOAD_EXAMPLES = {
     "pos": "Latte - Hot, 120",
     "purchases": "INV-1102, 05/10/2026, Ladang Segar Sdn Bhd, MILK-1L, Fresh milk 1L, 24, 168.00",
-    "interco": "PB-0042, 07/10/2026, Pastry Boys, PBCK-CROI, Croissant, 50, 250.00",
     "b2b": "INV-2207, 09/10/2026, Eight Ounce Coffee, KFF0156, Spinach chicken sandwich (1 set x 5 portions), 2, 59.60",
     "opening": "MILK-1L, Fresh milk 1L, 12 (packs counted), leave the RM value blank to use the item master price. "
                "Made in-house: SF-CARAMEL, Caramel sauce, 1200 in Semi-finished Qty (grams, by weight), packs and RM blank",
@@ -111,8 +108,6 @@ UPLOAD_TEMPLATES = {
     "pos": ["Full Name", "Quantity"],
     "purchases": ["InvoiceNumber", "InvoiceDate", "ContactName", "InventoryItemCode", "Description",
                   "Quantity", "LineAmount"],
-    "interco": ["InvoiceNumber", "InvoiceDate", "ContactName", "InventoryItemCode", "Description",
-                "Quantity", "LineAmount"],
     "b2b": ["InvoiceNumber", "InvoiceDate", "ContactName", "InventoryItemCode", "Description",
             "Quantity", "LineAmount"],
     "opening": ["SKU", "Item Name", "Counted Qty (packs)", "Total RM Value", "Semi-finished Qty"],
@@ -255,9 +250,8 @@ def upload(request, pk, kind):
                 report = importers.load_pos_sales(audit, f)
             elif kind == "b2b":
                 report = importers.load_b2b_sales(audit, f)
-            elif kind in ("purchases", "interco"):
-                source = "interco" if kind == "interco" else "supplier"
-                report = importers.load_purchases(audit, f, source=source)
+            elif kind == "purchases":
+                report = importers.load_purchases(audit, f, source="supplier")
             else:
                 report = importers.load_stock_count(audit, f, kind)
         except ValueError as exc:
@@ -445,7 +439,7 @@ def month_close(request):
         if a:
             files = [
                 ("pos", sales.get(a.pk, 0)), ("purchases", purchases.get((a.pk, "supplier"), 0)),
-                ("interco", purchases.get((a.pk, "interco"), 0)), ("b2b", b2b.get(a.pk, 0)),
+                ("b2b", b2b.get(a.pk, 0)),
                 ("opening", stock.get((a.pk, "opening"), 0)), ("closing", stock.get((a.pk, "closing"), 0)),
             ]
         rows.append({"outlet": o, "audit": a, "files": files, "status": status[a.pk][1] if a else None})
