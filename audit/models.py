@@ -276,7 +276,8 @@ class AuditPeriod(models.Model):
     variance_tolerance = models.DecimalField(
         max_digits=5, decimal_places=4, default=Decimal("0.02"),
         validators=[MinValueValidator(Decimal("0")), MaxValueValidator(Decimal("0.5"))],
-        help_text="Allowed F&B variance as a fraction of theoretical: 0.02 = 2%. Between 0 and 0.5.",
+        help_text="Allowed F&B variance (actual minus theoretical) as a fraction of sales: 0.02 = 2% of sales. "
+                  "Between 0 and 0.5.",
     )
     locked = models.BooleanField(default=False, help_text="Signed off: inputs can no longer change")
     locked_at = models.DateTimeField(null=True, blank=True)
@@ -321,9 +322,16 @@ class SaleLine(models.Model):
 
 
 class ProductionLine(models.Model):
-    """11 Production / Transfer / Wastage: extra demand on the same recipes."""
+    """11 Production / Transfer / Wastage: extra demand on the same recipes.
 
-    KIND_CHOICES = [("production", "B2B production"), ("transfer", "Transfer"), ("wastage", "Wastage")]
+    "b2b" lines come from the B2B sales upload (this outlet's own Xero invoices to sister brands):
+    invoice_qty is what was invoiced (sets, packs), qty is that times the batch yield (portions, base
+    units), and sales_value is the invoice line amount, which counts as B2B revenue. Uploading the
+    file again replaces only these lines.
+    """
+
+    KIND_CHOICES = [("production", "B2B production"), ("transfer", "Transfer"), ("wastage", "Wastage"),
+                    ("b2b", "B2B sale (invoice upload)")]
     audit = models.ForeignKey(AuditPeriod, on_delete=models.CASCADE, related_name="production")
     kind = models.CharField(max_length=20, choices=KIND_CHOICES, default="production")
     menu_item = models.ForeignKey(MenuItem, null=True, blank=True, on_delete=models.PROTECT)
@@ -332,6 +340,10 @@ class ProductionLine(models.Model):
     qty = quantity(help_text="For an item: its base unit (g, ml, pcs, see Unit). For a menu or semi-finished item: portions.")
     customer = models.CharField(max_length=200, blank=True, help_text="Customer / brand")
     note = models.CharField(max_length=300, blank=True)
+    invoice_number = models.CharField(max_length=60, blank=True)
+    invoice_date = models.DateField(null=True, blank=True)
+    invoice_qty = quantity(help_text="B2B sales: the quantity on the invoice (sets, packs)")
+    sales_value = money(help_text="B2B sales: the invoice line amount (RM), counted as B2B revenue")
 
     def clean(self):
         if sum(bool(x) for x in (self.menu_item_id, self.semi_finished_id, self.item_id)) != 1:

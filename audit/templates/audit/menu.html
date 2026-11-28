@@ -17,11 +17,12 @@
 </table></div></details>
 <div class="toolbar"><input type="search" placeholder="Search menu item" data-filter="menu-table" aria-label="Search"> <span id="menu-table-count" class="muted count"></span></div>
 <div class="scroll"><table class="sortable" id="menu-table">
-  <tr><th>Menu item</th><th>Category</th><th class="n">Price</th><th class="n">Cost</th><th class="n">Margin</th><th class="n">Units</th><th class="n">Contribution</th><th class="n">Margin %</th><th class="n">Mix %</th><th>Class</th></tr>
+  <tr><th>Menu item</th><th>Category</th><th class="n">Price</th><th class="n">Cost</th><th class="n">Margin</th><th class="n">Units</th><th class="n">Contribution</th><th class="n">Margin %</th><th class="n">Mix %</th><th class="n" title="Units x price, SST included">Total sales</th><th class="n">Total cost</th><th class="n" title="Total contribution minus total cost, as on the sheet's 62 Menu Engineering tab">Contribution − cost</th><th title="Profit: margin above (H) or below (L) the category average">Profit</th><th title="Popularity: share of the category's units above (H) or below (L) 70% of an equal share">Popularity</th><th>Class</th></tr>
   {% for r in result.menu %}
   <tr><td>{{ r.name }}</td><td>{{ r.category }}</td><td class="n">{{ r.price|money }}</td><td class="n">{{ r.cost|money }}</td><td class="n">{{ r.margin|money }}</td>
       <td class="n">{{ r.units|num:0 }}</td><td class="n">{{ r.total_contribution|money }}</td><td class="n">{{ r.margin_pct|pct }}</td><td class="n">{{ r.mix_share|pct }}</td>
+      <td class="n">{{ r.total_sales|money }}</td><td class="n">{{ r.total_cost|money }}</td><td class="n">{{ r.net_after_cost|money }}</td><td>{{ r.profit_category }}</td><td>{{ r.popularity_category }}</td>
       <td><span class="pill {{ r.menu_class|cut:' ' }}">{{ r.menu_class }}</span></td></tr>
-  {% empty %}<tr data-empty><td colspan="10" class="muted">No sales uploaded yet.</td></tr>{% endfor %}
+  {% empty %}<tr data-empty><td colspan="15" class="muted">No sales uploaded yet.</td></tr>{% endfor %}
 </table></div>
 {% endblock %}

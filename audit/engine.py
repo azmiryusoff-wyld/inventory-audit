@@ -34,6 +34,9 @@ DEFAULT_CATEGORIES = [
 
 # "NO RECIPE": sold but has no recipe, so its cost is unknown (shown as 0). It is kept out of the
 # category averages and thresholds, which it would otherwise distort, and never classed STAR.
+# Smallest RM amount per item for the "used but in no recipe" and "never bought" checks.
+MATERIAL = 50.0
+
 MENU_CLASS_ORDER = {"STAR": 1, "PLOWHORSE": 2, "PUZZLE": 3, "DOG": 4, "NO RECIPE": 5}
 
 
@@ -110,6 +113,8 @@ class EngineInput:
     # items' stock values go up by that much (see stock_from_semi_finished).
     opening_sf_qty: dict[str, float] = field(default_factory=dict)
     closing_sf_qty: dict[str, float] = field(default_factory=dict)
+    # Revenue from B2B sales to sister brands (invoice line amounts). Their portions are in demand.
+    b2b_sales: float = 0.0
     categories: list[str] = field(default_factory=lambda: list(DEFAULT_CATEGORIES))
     # Safety net against runaway recipes. The sheet stops at 5 levels;
     # the app goes deeper but still flags anything past this.
@@ -387,6 +392,25 @@ class MenuRow:
         return self.price * self.units
 
     @property
+    def net_after_cost(self) -> float:
+        """62 Menu Engineering "Net (Contrib - Cost)": total contribution minus total cost."""
+        return self.total_contribution - self.total_cost
+
+    @property
+    def profit_category(self) -> str:
+        """H if the margin is above its category's average (62 col N), else L. Blank with no recipe."""
+        if not self.has_recipe:
+            return ""
+        return "H" if self.margin > self.cat_avg_margin else "L"
+
+    @property
+    def popularity_category(self) -> str:
+        """H if its share of the category's units is above the popularity threshold (62 col P), else L."""
+        if not self.has_recipe:
+            return ""
+        return "H" if self.mix_share > self.popularity_threshold else "L"
+
+    @property
     def margin_pct(self) -> float:
         return self.margin / self.price if self.price else 0.0
 
@@ -416,7 +440,9 @@ class EngineResult:
     net: dict[str, float]
     substitution_status: list[tuple[Substitution, str]]
     categories: list[str]
-    total_sales: float
+    total_sales: float  # POS sales + B2B sales
+    pos_sales: float = 0.0
+    b2b_sales: float = 0.0
     # Semi-finished stock counts with their value at today's recipe cost:
     # [{"kind": "opening"/"closing", "sku", "qty", "value"}]
     sf_stock: list[dict] = field(default_factory=list)
@@ -462,13 +488,23 @@ class EngineResult:
         # Leakage (used more than the recipes say) and gains (used less) are listed apart:
         # mixing them makes the shares meaningless.
         top = sorted((r for r in fb_rows if r.variance > 0.005), key=lambda r: r.variance, reverse=True)[:10]
-        gains = sorted((r for r in fb_rows if r.variance < -0.005), key=lambda r: r.variance)[:5]
+        gains = sorted((r for r in fb_rows if r.variance < -0.005), key=lambda r: r.variance)[:10]
         total_fb_var = act_fb - theo_fb
         # Share of all positive (leakage) variance; dividing by the net variance, as the sheet does,
         # gives meaningless signs when other items are under-used.
         leakage = sum(r.variance for r in fb_rows if r.variance > 0)
+        # Gross underuse (negative, the sheet's "negative offsets"): leakage + offsets = net variance.
+        offsets = sum(r.variance for r in fb_rows if r.variance < 0)
+
+        def line(r, total):
+            return {"sku": r.sku, "name": r.name, "category": r.category, "variance": r.variance,
+                    "opening": r.opening, "purchases": r.purchases, "closing": r.closing,
+                    "actual": r.actual_cost, "theoretical": r.theoretical_cost,
+                    "share": r.variance / total if total else None}
         return {
             "total_sales": sales,
+            "pos_sales": self.pos_sales,
+            "b2b_sales": self.b2b_sales,
             "theoretical_fb": theo_fb,
             "theoretical_all": self.theoretical(),
             "actual_fb": act_fb,
@@ -476,21 +512,15 @@ class EngineResult:
             "actual_fb_pct": act_fb / sales if sales else 0.0,
             "variance_fb": total_fb_var,
             "variance_fb_pct": total_fb_var / theo_fb if theo_fb else 0.0,
+            # The tolerance is tested on this one (the chef's rule, Nov 2026): variance as a share of sales.
+            "variance_fb_pct_sales": total_fb_var / sales if sales else 0.0,
             "by_category": self.by_category(),
-            "top_leakage": [
-                {
-                    "sku": r.sku,
-                    "name": r.name,
-                    "category": r.category,
-                    "variance": r.variance,
-                    "share": r.variance / leakage if leakage else None,
-                }
-                for r in top
-            ],
+            "top_leakage": [line(r, leakage) for r in top],
             "leakage_total": leakage,
-            "top_gains": [
-                {"sku": r.sku, "name": r.name, "category": r.category, "variance": r.variance} for r in gains
-            ],
+            "top_gains": [line(r, offsets) for r in gains],
+            "offsets_total": offsets,
+            # Categories no recipe drives (packaging, LPG, cleaning...): their actual cost is the number to watch.
+            "non_recipe": [c for c in self.by_category() if c["category"] != FOOD_AND_BEVERAGE],
         }
 
     def menu_summary(self) -> list[dict]:
@@ -642,6 +672,16 @@ def _checks(
     odd_category = sorted(
         f"{r.sku} ({r.category or 'blank'})" for r in variance if r.category not in inp.categories
     )
+    # Three patterns from the chef's October 2026 review that are almost always a data problem, not usage.
+    # Semi-finished and menu SKUs are left out: they aren't bought stock.
+    # The last two only from RM 50 an item: below that it is small change (water, a pinch of salt with no
+    # stock line) and not worth holding the month in Review for.
+    stock_rows = [r for r in variance if r.sku not in inp.semi_finished and r.sku not in inp.menu]
+    negative = sorted((r for r in stock_rows if r.actual_cost <= -0.01), key=lambda r: r.actual_cost)
+    unused = sorted((r for r in stock_rows if r.category == FOOD_AND_BEVERAGE and not r.has_recipe
+                     and r.actual_cost >= MATERIAL), key=lambda r: -r.actual_cost)
+    never_bought = sorted((r for r in stock_rows if r.theoretical_cost >= MATERIAL and not (r.opening or r.purchases
+                           or r.closing)), key=lambda r: -r.theoretical_cost)
     return [
         Check("unmapped", "Unmapped recipe components", len(unmapped),
               "Fix the component so it matches an item or semi-finished SKU.", unmapped, "Chef"),
@@ -667,6 +707,25 @@ def _checks(
               sum(st.startswith("ERROR") for _, st in sub_status),
               "Each original SKU must map to one valid substitute; no reverse or chain mappings.",
               [f"{s.original_sku} -> {s.substitute_sku}: {st}" for s, st in sub_status if st != "ACTIVE"], "Chef"),
+        Check("negative_actual", "Closing stock above opening + purchases", len(negative),
+              "Actual cost comes out below zero: more is in the closing count than was ever there or bought. "
+              "Usually a purchase or inter-company invoice that wasn't uploaded, an opening count that is too "
+              "low, or a closing count in the wrong unit. Check the invoices and both counts for these items.",
+              [f"{r.sku} {r.name}: opening {r.opening:,.2f} + purchases {r.purchases:,.2f} - closing "
+               f"{r.closing:,.2f} = {r.actual_cost:,.2f}" for r in negative], "Procurement",
+              f"RM {-sum(r.actual_cost for r in negative):,.2f} of cost that can't be real" if negative else ""),
+        Check("used_no_recipe", "F&B items used but in no recipe (RM 50 or more)", len(unused),
+              "These were bought and used, but no recipe uses them, so all of their cost shows as leakage. "
+              "Add them to the recipes that use them, or move them to the right category in the item master "
+              "if they aren't food.",
+              [f"{r.sku} {r.name}: actual {r.actual_cost:,.2f}" for r in unused], "Chef",
+              f"RM {sum(r.actual_cost for r in unused):,.2f} counted as leakage" if unused else ""),
+        Check("never_bought", "Used by recipes but never bought or counted (RM 50 or more)", len(never_bought),
+              "The recipes say these were used, but there is no opening stock, purchase or closing stock for "
+              "them. Usually a missing purchase or inter-company invoice, or a recipe line pointing at the "
+              "wrong SKU (the item really used has a different code).",
+              [f"{r.sku} {r.name}: theoretical {r.theoretical_cost:,.2f}" for r in never_bought], "Procurement",
+              f"RM {sum(r.theoretical_cost for r in never_bought):,.2f} shown as underuse" if never_bought else ""),
         Check("category", "Items with an unknown category", len(odd_category),
               "Set the item's category in the central item master to one of: "
               + ", ".join(inp.categories) + ". Until then it is not counted in Food & Beverage.",
@@ -682,7 +741,7 @@ def run(inp: EngineInput) -> EngineResult:
     consumption = _consumption(inp, explosion.net)
     variance = _variance(inp, consumption, subs)
     menu = _menu_engineering(inp, costs)
-    total_sales = sum(qty * inp.menu[sku].price for sku, qty in inp.sold.items() if sku in inp.menu)
+    pos_sales = sum(qty * inp.menu[sku].price for sku, qty in inp.sold.items() if sku in inp.menu)
     return EngineResult(
         consumption=consumption,
         variance=variance,
@@ -694,7 +753,9 @@ def run(inp: EngineInput) -> EngineResult:
         categories=list(inp.categories) + sorted(
             {r.category for r in variance if r.category not in inp.categories}
         ),
-        total_sales=total_sales,
+        total_sales=pos_sales + inp.b2b_sales,
+        pos_sales=pos_sales,
+        b2b_sales=inp.b2b_sales,
         sf_stock=[
             {"kind": kind, "sku": sku, "qty": qty, "value": qty * costs.get(sku, 0.0)}
             for kind, counted in (("opening", inp.opening_sf_qty), ("closing", inp.closing_sf_qty))

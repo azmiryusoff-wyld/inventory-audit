@@ -242,10 +242,14 @@ def read_pos_sales(file, location: str = "", info: dict | None = None) -> list[d
       * Item Sales (Count_Gross): Item, '<LOCATION> (Count)', '<LOCATION> (Price)', ... (several outlets;
         ``location`` picks the outlet's Count column)
       * a bare two-column paste: name, quantity
+      * the raw Dinlr Item Sales export (see _read_dinlr)
     A quantity that isn't a number stops the upload with the row number; Total rows are left out.
     """
     rows = read_rows(file)
     _wrong_file(rows)
+    dinlr = _dinlr_layout(rows)
+    if dinlr is not None:
+        return _read_dinlr(rows, dinlr, location, info)
     totals: dict[str, tuple[str, Decimal]] = {}
     errors: list[str] = []
 
@@ -322,6 +326,91 @@ def read_pos_sales(file, location: str = "", info: dict | None = None) -> list[d
                     group, item = clean(cell(r, cols, "Category / Group")), clean(cell(r, cols, "Item"))
                     name = f"{group} - {item}" if group and item else group or item
                 add(i, name, cell(r, cols, "Quantity"))
+    if errors:
+        raise RowErrors(errors)
+    return [{"pos_name": n, "qty": q} for n, q in totals.values() if q]
+
+
+DINLR_PERIOD = re.compile(r"^\d{1,2}/\d{1,2}/\d{4}\s*-\s*\d{1,2}/\d{1,2}/\d{4}\s*\(count\)$")
+
+
+def _dinlr_layout(rows: list[list]) -> dict | None:
+    """The raw Dinlr export: a 'Location Name' row above an 'Item | <period> (Count) | <period> (Price)'
+    header. Returns where things are, or None for any other file."""
+    location = None
+    for i, row in enumerate(rows[:30]):
+        cells = [norm(c) for c in row]
+        if cells and cells[0] == "location name":
+            location = next((clean(c) for c in row[1:] if clean(c)), "")
+            continue
+        count = [j for j, c in enumerate(cells) if DINLR_PERIOD.match(c)]
+        if count and "item" in cells:
+            if location is None:
+                return None
+            return {"header": i, "item": cells.index("item"), "count": count[0], "location": location,
+                    "period": clean(row[count[0]])[: -len("(Count)")].strip()}
+    return None
+
+
+def _read_dinlr(rows: list[list], layout: dict, location: str, info: dict | None) -> list[dict]:
+    """Raw Dinlr Item Sales export -> [{'pos_name', 'qty'}].
+
+    Items come in blocks separated by a blank row (Dinlr writes a single space). The first row of a
+    block is the parent item with its total; the rows under it are its variants (Hot, Cold, Regular
+    Price, a bagel flavour...). As the chef's scripted sheet does, a block with variants gives one line
+    per variant named "parent - variant" and the parent's total is dropped (it is only the sum of the
+    variants); a block with no variants gives the parent itself.
+    """
+    found = layout["location"]
+    places = [p.strip() for p in found.split(",") if p.strip()]
+    if len(places) > 1:
+        raise PosLocationError(
+            f"This Dinlr export covers {len(places)} locations together ({found}), so its quantities are "
+            "added up across them. Export the Item Sales report for this outlet's location only and upload that."
+        )
+    if location and found and norm(found) != norm(location):
+        raise PosLocationError(
+            f"This Dinlr export is for {found}, but this outlet's POS location is {location}. Upload the "
+            "export for this outlet, or correct the outlet's POS location under Master data > Outlets."
+        )
+    if info is not None:
+        info["column"] = f"{layout['period']} (Count)"
+        info["dinlr"] = found
+    totals: dict[str, tuple[str, Decimal]] = {}
+    errors: list[str] = []
+    item_col, qty_col = layout["item"], layout["count"]
+
+    def qty_of(line_no, name, row):
+        try:
+            return parse_number(row[qty_col] if qty_col < len(row) else None)
+        except ValueError as exc:
+            errors.append(f"Row {line_no}: quantity {exc} ({name})")
+            return None
+
+    def flush(block):
+        if not block:
+            return
+        (p_no, parent, p_row), variants = block[0], block[1:]
+        lines = ([(n, f"{parent} - {v}", r) for n, v, r in variants] if variants else [(p_no, parent, p_row)])
+        for n, name, r in lines:
+            if norm(name) in TOTAL_ROW_NAMES:
+                continue
+            q = qty_of(n, name, r)
+            if q is None:
+                continue
+            key = norm(name)
+            prev = totals.get(key, (name, Decimal("0")))
+            totals[key] = (prev[0], prev[1] + q)
+
+    block: list = []
+    for i, r in enumerate(rows[layout["header"] + 1:], start=layout["header"] + 2):
+        name = clean(r[item_col]) if item_col < len(r) else ""
+        if not name:
+            flush(block)
+            block = []
+        else:
+            block.append((i, name, r))
+    flush(block)
     if errors:
         raise RowErrors(errors)
     return [{"pos_name": n, "qty": q} for n, q in totals.values() if q]
@@ -632,7 +721,10 @@ def load_pos_sales(audit, file, replace=True) -> ImportReport:
     if not rows:
         raise _no_lines("sales lines")
     report = ImportReport()
-    if info.get("column"):
+    if info.get("dinlr") is not None:
+        report.note = (f"Read as a raw Dinlr export{' for ' + info['dinlr'] if info['dinlr'] else ''}, "
+                       f"column '{info['column']}': items with variants are named 'item - variant'")
+    elif info.get("column"):
         report.note = f"Quantities read from the column '{info['column']}'"
     with transaction.atomic():
         audit = _lock_open_audit(audit)
@@ -711,6 +803,135 @@ def load_purchases(audit, file, source="supplier", replace=True) -> ImportReport
     return report
 
 
+def _b2b_targets(brand):
+    """What an invoice SKU can be, in the order the sheet looks: this brand's semi-finished items, then its
+    menu items, then the item master. A SKU that is both a bought item and a semi-finished item is the
+    semi-finished one, so it is never costed both ways."""
+    from .models import MenuItem, Recipe, SemiFinished
+
+    recipes = {}
+    for r in Recipe.objects.filter(brand=brand).select_related("menu_item", "semi_finished"):
+        recipes[("sf", r.semi_finished_id) if r.semi_finished_id else ("menu", r.menu_item_id)] = r.batch_yield
+    sf = {norm(x.sku): x for x in SemiFinished.objects.filter(brand=brand)}
+    menu = {norm(x.sku): x for x in MenuItem.objects.filter(brand=brand)}
+    items, skus = _item_lookup()
+    return sf, menu, items, recipes, skus + list(x.sku for x in sf.values()) + list(x.sku for x in menu.values())
+
+
+def _without_spaces(lookup: dict) -> dict:
+    """The same lookup keyed without spaces ("KFF 0156" -> "kff0156"), keeping only keys that stay unique.
+    Xero item codes and the app's semi-finished SKUs don't always agree on the space."""
+    out: dict = {}
+    clash = set()
+    for k, v in lookup.items():
+        key = k.replace(" ", "")
+        if key in out and out[key] is not v:
+            clash.add(key)
+        out[key] = v
+    return {k: v for k, v in out.items() if k not in clash}
+
+
+def load_b2b_sales(audit, file, replace=True) -> ImportReport:
+    """B2B sales to sister brands: this outlet's own Xero sales invoices (same export as purchases).
+
+    Each line becomes demand on the recipes, like a POS sale, and its line amount counts as B2B revenue.
+    The invoice quantity is a set or a pack, so it is turned into what the recipe counts:
+      * a semi-finished or menu item: quantity x its recipe's batch yield (1 set x 5 portions = 5 portions)
+      * an item master item: quantity x its pack size (base units)
+    Handling-charge lines are skipped, as for purchases.
+    """
+    from collections import Counter
+
+    from .models import ProductionLine
+
+    rows = read_xero_invoices(file)
+    report = ImportReport()
+    skip = [norm(x) for x in settings.PURCHASE_SKIP_DESCRIPTIONS]
+    keep, no_code = [], []
+    for row in rows:
+        if any(x in norm(row["description"]) for x in skip):
+            report.skipped += 1
+        elif not row["sku"]:
+            no_code.append(row)
+        else:
+            keep.append(row)
+    if not keep:
+        raise _no_lines("invoice lines with an item code")
+    if no_code:
+        total = sum(r["value"] for r in no_code)
+        report.warnings.append(
+            f"{len(no_code)} line{'s' if len(no_code) > 1 else ''} with no InventoryItemCode not loaded "
+            f"({_money(total)} of sales not counted): "
+            + ", ".join(f"{r['description'] or 'no description'} {_money(r['value'])}" for r in no_code[:5])
+            + (" ..." if len(no_code) > 5 else "")
+        )
+    year, month = (int(x) for x in audit.period.split("-"))
+    outside = [r for r in keep if r["invoice_date"] and (r["invoice_date"].year, r["invoice_date"].month) != (year, month)]
+    if outside:
+        report.warnings.append(
+            f"{len(outside)} line{'s' if len(outside) > 1 else ''} dated outside {audit.period} (loaded and counted "
+            "this month; remove them from the file and upload again if they belong to another month)"
+        )
+    dupes = Counter((r["invoice_number"], r["invoice_date"], r["sku"], r["qty"], r["value"]) for r in keep)
+    for (inv, _, sku, _, value), n in dupes.items():
+        if n > 1:
+            report.warnings.append(f"Possible duplicate: {inv or 'no invoice no.'} {sku} {_money(value)} appears {n} times")
+    with transaction.atomic():
+        audit = _lock_open_audit(audit)
+        if replace:
+            audit.production.filter(kind="b2b").delete()
+        sf, menu, items, recipes, skus = _b2b_targets(audit.brand)
+        sf_ns, menu_ns = _without_spaces(sf), _without_spaces(menu)
+        lines, unknown = [], []
+        for row in keep:
+            key = norm(row["sku"])
+            # Semi-finished first, also when the code differs only by a space: a SKU that is both a bought
+            # item and a semi-finished item must be the semi-finished one.
+            if key not in sf and key.replace(" ", "") in sf_ns:
+                sf = {**sf, key: sf_ns[key.replace(" ", "")]}
+            elif key not in sf and key not in menu and key.replace(" ", "") in menu_ns:
+                menu = {**menu, key: menu_ns[key.replace(" ", "")]}
+            line = ProductionLine(audit=audit, kind="b2b", customer=row["supplier"][:200],
+                                  note=row["description"][:300], invoice_number=row["invoice_number"],
+                                  invoice_date=row["invoice_date"], invoice_qty=row["qty"], sales_value=row["value"])
+            if key in sf:
+                line.semi_finished = sf[key]
+                batch = recipes.get(("sf", sf[key].pk))
+                if batch is None:
+                    report.warnings.append(f"{sf[key].sku} has no recipe, so its batch yield is unknown: "
+                                           "counted as 1 portion per invoiced unit and costed at zero")
+                factor = batch or Decimal("1")
+            elif key in menu:
+                line.menu_item = menu[key]
+                factor = recipes.get(("menu", menu[key].pk)) or Decimal("1")
+            elif key in items:
+                line.item = items[key]
+                factor = items[key].pack_size or Decimal("1")
+                if not items[key].pack_size:
+                    report.warnings.append(f"{items[key].sku} has no pack size in the item master: counted as 1 "
+                                           "base unit per invoiced unit")
+            else:
+                unknown.append(row)
+                continue
+            line.qty = row["qty"] * factor
+            lines.append(line)
+        for r in unknown:
+            msg = _unknown_sku(r["sku"], r["description"], skus)
+            msg = msg.replace("Unknown SKU", "Not loaded, unknown SKU", 1)
+            if msg not in report.warnings:
+                report.warnings.append(msg)
+        if unknown:
+            report.warnings.append(f"{_money(sum(r['value'] for r in unknown))} of B2B sales on unknown SKUs not counted")
+        if not lines:
+            raise ValueError("None of the item codes in this file is a semi-finished item, menu item or item master "
+                             "SKU, so nothing was changed. " + "; ".join(report.warnings[:5]))
+        ProductionLine.objects.bulk_create(lines)
+        report.created = len(lines)
+        report.note = (f"{sum(l.qty for l in lines):,.0f} portions / base units of demand, "
+                       f"{_money(sum(l.sales_value for l in lines))} of B2B sales")
+    return report
+
+
 def load_stock_count(audit, file, kind, replace=True) -> ImportReport:
     from collections import Counter
 
@@ -785,6 +1006,29 @@ def load_stock_count(audit, file, kind, replace=True) -> ImportReport:
     return report
 
 
+def _adopt_respaced_skus(existing, workbook_skus) -> int:
+    """Rename stored SKUs that the workbook now writes with different spacing ("MEP 100" -> "MEP100").
+
+    Without this a re-import would add a second, recipe-less copy of each item next to the old one,
+    and counts, recipes and history linked to the old copy would be split from the new one.
+    Only a one-to-one match is renamed; a SKU the workbook still uses as written is left alone.
+    """
+    wanted = {s for s in workbook_skus if s}
+    by_key: dict[str, list[str]] = {}
+    for s in wanted:
+        by_key.setdefault(s.replace(" ", "").upper(), []).append(s)
+    renamed = 0
+    for obj in existing:
+        if obj.sku in wanted:
+            continue
+        new = by_key.get(obj.sku.replace(" ", "").upper(), [])
+        if len(new) == 1 and not existing.filter(sku=new[0]).exists():
+            obj.sku = new[0]
+            obj.save(update_fields=["sku"])
+            renamed += 1
+    return renamed
+
+
 @transaction.atomic
 def load_workbook_masters(brand, file) -> dict[str, ImportReport]:
     """One-off migration: read a brand's workbook (.xlsx download) into the app.
@@ -806,6 +1050,8 @@ def load_workbook_masters(brand, file) -> dict[str, ImportReport]:
     rows = tab("21 SF Master")
     if rows:
         _, cols = find_header(rows, ["SF SKU", "SF Name"])
+        _adopt_respaced_skus(SemiFinished.objects.filter(brand=brand),
+                             [clean(cell(r, cols, "SF SKU")) for r in rows[1:]])
         for r in rows[1:]:
             sku = clean(cell(r, cols, "SF SKU"))
             if not sku:
@@ -821,6 +1067,8 @@ def load_workbook_masters(brand, file) -> dict[str, ImportReport]:
     rows = tab("23 Menu Master")
     if rows:
         _, cols = find_header(rows, ["Menu SKU", "Menu Name"])
+        _adopt_respaced_skus(MenuItem.objects.filter(brand=brand),
+                             [clean(cell(r, cols, "Menu SKU")) for r in rows[1:]])
         seen_menu = set()
         for r in rows[1:]:
             sku = clean(cell(r, cols, "Menu SKU"))

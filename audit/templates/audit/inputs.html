@@ -11,9 +11,9 @@
 </table></div>
 
 <div class="section-head"><h2 id="production">Production, transfers, wastage <span class="muted">({{ production|length }})</span></h2>{% if can_edit.production %}<a class="btn secondary sm" href="{% url 'audit_line_new' audit.pk 'production' %}">{% icon "plus" 14 %} Add line</a>{% endif %}</div>
-<div class="scroll"><table class="sortable searchable"><tr><th>Type</th><th>SKU</th><th class="n">Qty</th><th>Unit</th><th>Customer / brand</th><th>Note</th>{% if can_edit.production %}<th></th>{% endif %}</tr>
-{% for p in production %}<tr><td>{{ p.get_kind_display }}</td><td>{{ p.sku }}</td><td class="n">{{ p.qty|num }}</td><td>{{ p.unit }}</td><td>{{ p.customer }}</td><td>{{ p.note }}</td>{% if can_edit.production %}<td><a href="{% url 'audit_line_edit' audit.pk 'production' p.pk %}">Edit</a></td>{% endif %}</tr>
-{% empty %}<tr data-empty><td colspan="7" class="muted">None. Add B2B production, transfers out or wastage here so they count in theoretical usage.</td></tr>{% endfor %}
+<div class="scroll"><table class="sortable searchable"><tr><th>Type</th><th>SKU</th><th class="n">Qty</th><th>Unit</th><th>Customer / brand</th><th>Note</th><th class="n">Invoiced</th><th class="n">Sales ({{ currency }})</th>{% if can_edit.production %}<th></th>{% endif %}</tr>
+{% for p in production %}<tr><td>{{ p.get_kind_display }}</td><td>{{ p.sku }}</td><td class="n">{{ p.qty|num }}</td><td>{{ p.unit }}</td><td>{{ p.customer }}</td><td>{{ p.note }}{% if p.invoice_number %} ({{ p.invoice_number }}){% endif %}</td><td class="n">{% if p.kind == "b2b" %}{{ p.invoice_qty|num }}{% endif %}</td><td class="n">{% if p.kind == "b2b" %}{{ p.sales_value|money }}{% endif %}</td>{% if can_edit.production %}<td><a href="{% url 'audit_line_edit' audit.pk 'production' p.pk %}">Edit</a></td>{% endif %}</tr>
+{% empty %}<tr data-empty><td colspan="9" class="muted">None. Upload B2B sales invoices on the Overview, or add transfers out or wastage here, so they count in theoretical usage.</td></tr>{% endfor %}
 </table></div>
 
 <div class="section-head"><h2 id="purchase">Purchases <span class="muted">({{ purchases|length }})</span></h2>{% if can_edit.purchase %}<a class="btn secondary sm" href="{% url 'audit_line_new' audit.pk 'purchase' %}">{% icon "plus" 14 %} Add line</a>{% endif %}</div>

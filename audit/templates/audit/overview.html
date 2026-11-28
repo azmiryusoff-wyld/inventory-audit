@@ -9,16 +9,16 @@
 {% endif %}
 
 <div class="grid">
-  <div class="card kpi"><div class="label"><span class="kpi-icon">{% icon "sales" 16 %}</span>Total sales (POS)</div>
+  <div class="card kpi"><div class="label"><span class="kpi-icon">{% icon "sales" 16 %}</span>Total sales{% if dash.b2b_sales %} (POS + B2B){% else %} (POS){% endif %}</div>
     <div class="value"><span class="unit">{{ currency }}</span>{{ dash.total_sales|money }}</div>
-    <div class="muted">Units sold × menu price, SST included{% if excluded.pos_unmatched %}. Leaves out {{ excluded.pos_unmatched|cut:" not counted in sales or COGS" }} not on the menu{% endif %}</div></div>
+    <div class="muted">{% if dash.b2b_sales %}POS {{ currency }} {{ dash.pos_sales|money }} (units sold × menu price, SST included) + B2B to sister brands {{ currency }} {{ dash.b2b_sales|money }}{% else %}Units sold × menu price, SST included{% endif %}{% if excluded.pos_unmatched %}. Leaves out {{ excluded.pos_unmatched|cut:" not counted in sales or COGS" }} not on the menu{% endif %}</div></div>
   <div class="card kpi"><div class="label"><span class="kpi-icon">{% icon "target" 16 %}</span><abbr title="Cost of goods sold for Food &amp; Beverage, worked out from the recipes of everything sold, produced or wasted: what it should have cost.">Theoretical F&amp;B COGS</abbr></div>
     <div class="value"><span class="unit">{{ currency }}</span>{{ dash.theoretical_fb|money }}</div><div class="muted">{{ dash.theoretical_fb_pct|pct }} of sales</div></div>
   <div class="card kpi"><div class="label"><span class="kpi-icon">{% icon "box" 16 %}</span><abbr title="What the Food &amp; Beverage stock actually cost: opening stock + purchases − closing stock.">Actual F&amp;B COGS</abbr></div>
     <div class="value"><span class="unit">{{ currency }}</span>{{ dash.actual_fb|money }}</div><div class="muted">{{ dash.actual_fb_pct|pct }} of sales{% if excluded.purchase_unknown or excluded.count_unknown %}. Unknown SKUs left out: {% if excluded.purchase_unknown %}purchases {{ excluded.purchase_unknown|cut:" not counted in actual COGS" }}{% endif %}{% if excluded.purchase_unknown and excluded.count_unknown %}, {% endif %}{% if excluded.count_unknown %}stock {{ excluded.count_unknown|cut:" of stock not counted" }}{% endif %}{% endif %}</div></div>
   <div class="card kpi {% if variance_outside %}tone-bad{% else %}tone-good{% endif %}"><div class="label"><span class="kpi-icon">{% icon "activity" 16 %}</span><span><abbr title="Actual minus theoretical. Positive (red) means more was used than the recipes say: waste, over-portioning, theft or a missing count.">F&amp;B variance</abbr> (actual − theoretical)</span></div>
     <div class="value {% if variance_outside %}pos{% else %}neg{% endif %}"><span class="unit">{{ currency }}</span>{{ dash.variance_fb|money }}</div>
-    <div class="muted">{% if dash.theoretical_fb %}{{ dash.variance_fb_pct|pct }} of theoretical{% else %}no theoretical cost yet{% endif %} · {% if variance_outside %}outside{% else %}within{% endif %} the {{ audit.variance_tolerance|pct }} tolerance{% if variance_outside and dash.variance_fb < 0 %}. Using less than the recipes say usually means missing sales, a missed purchase or a count error{% endif %}</div></div>
+    <div class="muted">{% if dash.total_sales %}{{ variance_pct_sales|pct }} of sales{% else %}no sales yet{% endif %}{% if dash.theoretical_fb %} ({{ dash.variance_fb_pct|pct }} of theoretical){% endif %} · {% if variance_outside %}outside{% else %}within{% endif %} the {{ audit.variance_tolerance|pct }}-of-sales tolerance{% if variance_outside and dash.variance_fb < 0 %}. Using less than the recipes say usually means missing sales, a missed purchase or a count error{% endif %}</div></div>
 </div>
 
 <div class="card">
@@ -30,7 +30,7 @@
       <div class="u-head">
         <span class="u-icon">{% icon "file" 17 %}</span>
         <div><div class="u-title">{{ info.0 }}</div><div class="u-desc">{{ info.1 }}</div></div>
-        <span class="u-status">{% if v %}<span class="pill PASS">{{ v }} line{{ v|pluralize }}</span>{% elif key == "interco" %}<span class="pill INCOMPLETE">Optional · 0 lines</span>{% else %}<span class="pill INCOMPLETE">Missing · 0 lines</span>{% endif %}</span>
+        <span class="u-status">{% if v %}<span class="pill PASS">{{ v }} line{{ v|pluralize }}</span>{% elif key == "interco" or key == "b2b" %}<span class="pill INCOMPLETE">Optional · 0 lines</span>{% else %}<span class="pill INCOMPLETE">Missing · 0 lines</span>{% endif %}</span>
       </div>
       {% if key == "opening" and first_month and not audit.locked and not v %}
       <div class="msg warning">{% icon "info" 16 %}<div class="msg-body">First month for this outlet in the app: upload last month's closing count from the old workbook as opening stock. From next month it is filled in automatically.</div></div>
@@ -102,22 +102,39 @@
 </div>
 
 <div>
-  <div class="section-head"><h2>Top 10 leakage, Food &amp; Beverage</h2></div>
-  <p class="muted" style="margin:-4px 0 10px">Items used more than the recipes say. Share is of all F&amp;B leakage ({{ currency }} {{ dash.leakage_total|money }}).</p>
+  <div class="section-head"><h2>Gross leakage vs offsets, Food &amp; Beverage</h2></div>
+  <p class="muted" style="margin:-4px 0 10px">The net variance is overuse minus underuse. A small net can hide large errors that cancel out, so both sides are shown.</p>
   <div class="scroll"><table>
-    <tr><th>Item</th><th class="n">Leakage ({{ currency }})</th><th class="n">Share of leakage</th><th class="bar-cell"><span class="sr-only">Chart</span></th></tr>
-    {% for r in dash.top_leakage %}
-    <tr><td>{{ r.sku }} {{ r.name }}</td><td class="n pos">{{ r.variance|money }}</td><td class="n">{{ r.share|pct }}</td><td class="bar-cell"><span class="hbar bad" data-bar="{{ r.variance }}" data-group="leak"></span></td></tr>
-    {% empty %}<tr><td colspan="4" class="muted">No leakage: nothing was used more than the recipes say.</td></tr>{% endfor %}
+    <tr><th></th><th class="n">{{ currency }}</th><th class="bar-cell"><span class="sr-only">Chart</span></th></tr>
+    <tr><td>Gross leakage (used more than the recipes say)</td><td class="n pos">{{ dash.leakage_total|money }}</td><td class="bar-cell"><span class="hbar bad" data-bar="{{ dash.leakage_total }}" data-group="gross"></span></td></tr>
+    <tr><td>Offsets (used less than the recipes say)</td><td class="n warn">{{ dash.offsets_total|money }}</td><td class="bar-cell"><span class="hbar alt" data-bar="{{ dash.offsets_total|neg }}" data-group="gross"></span></td></tr>
+    <tr><td><strong>Net F&amp;B variance</strong></td><td class="n"><strong>{{ dash.variance_fb|money }}</strong></td><td class="bar-cell"><span class="hbar" data-bar="{{ dash.variance_fb }}" data-group="gross"></span></td></tr>
   </table></div>
-  {% if dash.top_gains %}
-  <h3>Used less than the recipes say</h3>
+  {% if dash.non_recipe %}
+  <div class="section-head"><h2>Non-recipe categories, actual cost</h2></div>
+  <p class="muted" style="margin:-4px 0 10px">No recipe drives these, so there is no theoretical cost to compare with: watch the cost and its share of sales month to month.</p>
   <div class="scroll"><table>
-    <tr><th>Item</th><th class="n">Variance ({{ currency }})</th></tr>
-    {% for r in dash.top_gains %}<tr><td>{{ r.sku }} {{ r.name }}</td><td class="n">{{ r.variance|money }}</td></tr>{% endfor %}
+    <tr><th>Category</th><th class="n">Actual ({{ currency }})</th><th class="n">% of sales</th></tr>
+    {% for c in dash.non_recipe %}<tr><td>{{ c.category }}</td><td class="n">{{ c.actual|money }}</td><td class="n">{{ c.pct_of_sales|pct }}</td></tr>{% endfor %}
   </table></div>
-  <p class="muted">Often a sign of a count or purchase that's missing, or a recipe that uses more than is really served.</p>
   {% endif %}
 </div>
 </div>
+
+<div class="section-head"><h2>Top 10 leakage, Food &amp; Beverage</h2></div>
+<p class="muted" style="margin:-4px 0 10px">Items used more than the recipes say. Compare purchases and the two counts with the theoretical cost to see whether a delivery, a count or real usage is behind it. Share is of all F&amp;B leakage ({{ currency }} {{ dash.leakage_total|money }}).</p>
+<div class="scroll"><table>
+  <tr><th>Item</th><th class="n">Opening</th><th class="n">Purchases</th><th class="n">Closing</th><th class="n">Actual</th><th class="n">Theoretical</th><th class="n">Leakage ({{ currency }})</th><th class="n">Share of leakage</th></tr>
+  {% for r in dash.top_leakage %}
+  <tr><td>{{ r.sku }} {{ r.name }}</td><td class="n">{{ r.opening|money }}</td><td class="n">{{ r.purchases|money }}</td><td class="n">{{ r.closing|money }}</td><td class="n">{{ r.actual|money }}</td><td class="n">{{ r.theoretical|money }}</td><td class="n pos">{{ r.variance|money }}</td><td class="n">{{ r.share|pct }}</td></tr>
+  {% empty %}<tr><td colspan="8" class="muted">No leakage: nothing was used more than the recipes say.</td></tr>{% endfor %}
+</table></div>
+{% if dash.top_gains %}
+<div class="section-head"><h2>Top 10 used less than the recipes say, Food &amp; Beverage</h2></div>
+<p class="muted" style="margin:-4px 0 10px">Often a count or purchase that's missing, or a recipe that uses more than is really served. A negative actual means closing stock is higher than opening plus purchases. Share is of all F&amp;B underuse ({{ currency }} {{ dash.offsets_total|money }}).</p>
+<div class="scroll"><table>
+  <tr><th>Item</th><th class="n">Opening</th><th class="n">Purchases</th><th class="n">Closing</th><th class="n">Actual</th><th class="n">Theoretical</th><th class="n">Variance ({{ currency }})</th><th class="n">Share of underuse</th></tr>
+  {% for r in dash.top_gains %}<tr><td>{{ r.sku }} {{ r.name }}</td><td class="n">{{ r.opening|money }}</td><td class="n">{{ r.purchases|money }}</td><td class="n">{{ r.closing|money }}</td><td class="n {% if r.actual < 0 %}warn{% endif %}">{{ r.actual|money }}</td><td class="n">{{ r.theoretical|money }}</td><td class="n warn">{{ r.variance|money }}</td><td class="n">{{ r.share|pct }}</td></tr>{% endfor %}
+</table></div>
+{% endif %}
 {% endblock %}

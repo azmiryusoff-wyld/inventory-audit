@@ -190,7 +190,7 @@ class ReportTests(Phase2Base):
         self.post("purchases", "x.csv", XERO_OCT)
         wb = openpyxl.load_workbook(BytesIO(self.client.get(reverse("audit_export", args=[self.audit.pk])).content))
         dash = {r[0].value: r[1] for r in wb["Dashboard"].iter_rows() if r[0].value}
-        self.assertEqual(dash["Total sales (POS, SST included)"].number_format, "#,##0.00;(#,##0.00);-")
+        self.assertEqual(dash["POS sales (SST included)"].number_format, "#,##0.00;(#,##0.00);-")
         self.assertEqual(dash["Variance % of theoretical"].number_format, "0.0%")
         for row in wb["Variance"].iter_rows(min_row=2, values_only=True):
             for v in row[4:10]:

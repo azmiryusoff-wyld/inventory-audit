@@ -11,18 +11,18 @@
   <span class="muted count">{{ rows|length }} audit{{ rows|length|pluralize }}</span>
 </form>
 {% if rows %}<div class="card">
-  <div class="card-head"><h2>F&amp;B variance % by audit</h2>
+  <div class="card-head"><h2>F&amp;B variance % of sales by audit</h2>
     <div class="legend"><span><i style="background:var(--good)"></i>Within tolerance</span><span><i style="background:#ef4444"></i>Outside tolerance</span><span><i style="background:rgba(15,118,110,.18)"></i>Tolerance band</span></div></div>
   <div id="trends-chart" class="chart" data-tolerance="0.02"></div>
   <p class="note">Bars to the right: more was used than the recipes say. First 24 rows of the table below, in the same order.</p>
 </div>{% endif %}
 <div class="scroll"><table class="sortable" id="trends-table" data-totals>
-  <thead><tr><th>Brand</th><th>Outlet</th><th>Month</th><th class="n">Sales</th><th class="n">Theoretical F&amp;B %</th><th class="n">Actual F&amp;B %</th><th class="n">Variance</th><th class="n">Variance %</th><th>Status</th></tr></thead>
+  <thead><tr><th>Brand</th><th>Outlet</th><th>Month</th><th class="n">Sales</th><th class="n">Theoretical F&amp;B %</th><th class="n">Actual F&amp;B %</th><th class="n">Variance</th><th class="n" title="Variance as a share of sales, the figure the tolerance is tested on">Variance % of sales</th><th>Status</th></tr></thead>
   <tbody>
   {% for r in rows %}
-  <tr data-label="{{ r.audit.outlet }} · {{ r.audit.period }}" data-var="{{ r.variance_fb_pct|default_if_none:'' }}" data-var-text="{{ r.variance_fb_pct|pct }}" data-tol="{{ r.audit.variance_tolerance }}"><td>{{ r.audit.outlet.brand.code }}</td><td>{{ r.audit.outlet.name }}</td><td><a href="{% url 'audit_detail' r.audit.pk %}">{{ r.audit.period }}</a></td>
+  <tr data-label="{{ r.audit.outlet }} · {{ r.audit.period }}" data-var="{{ r.variance_pct_sales|default_if_none:'' }}" data-var-text="{{ r.variance_pct_sales|pct }}" data-tol="{{ r.audit.variance_tolerance }}"><td>{{ r.audit.outlet.brand.code }}</td><td>{{ r.audit.outlet.name }}</td><td><a href="{% url 'audit_detail' r.audit.pk %}">{{ r.audit.period }}</a></td>
       <td class="n">{{ r.total_sales|money }}</td><td class="n">{{ r.theoretical_fb_pct|pct }}</td><td class="n">{{ r.actual_fb_pct|pct }}</td>
-      <td class="n">{{ r.variance_fb|money }}</td><td class="n">{{ r.variance_fb_pct|pct }}</td><td><span class="pill {{ r.status.code }}" title="{{ r.status.reasons|join:'; ' }}">{{ r.status.label }}</span>{% if r.audit.locked %} <span class="pill LOCKED">Signed off</span>{% endif %}</td></tr>
+      <td class="n">{{ r.variance_fb|money }}</td><td class="n">{{ r.variance_pct_sales|pct }}</td><td><span class="pill {{ r.status.code }}" title="{{ r.status.reasons|join:'; ' }}">{{ r.status.label }}</span>{% if r.audit.locked %} <span class="pill LOCKED">Signed off</span>{% endif %}</td></tr>
   {% empty %}<tr data-empty><td colspan="9" class="muted">No audits for these filters.</td></tr>{% endfor %}
   </tbody>
   {% if rows %}<tfoot><tr><td colspan="3">Total</td><td class="n" data-sum></td><td></td><td></td><td class="n" data-sum></td><td></td><td></td></tr></tfoot>{% endif %}

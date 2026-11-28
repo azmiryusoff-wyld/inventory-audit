@@ -1,7 +1,7 @@
 {% extends "audit/base.html" %}{% load audit_tags %}
 {% block content %}
 <div class="page-head"><div class="titles"><h1>Month close · {{ period }}</h1>
-<p class="sub">Every outlet and every file for one month. A number is the lines loaded; a dash is a file still to upload ({{ required.values|join:", " }} are needed; inter-company is optional).</p></div></div>
+<p class="sub">Every outlet and every file for one month. A number is the lines loaded; a dash is a file still to upload ({{ required.values|join:", " }} are needed; inter-company and B2B sales are optional).</p></div></div>
 <form method="get" class="toolbar">
   <label>Month <input type="month" name="month" value="{{ period }}"></label>
   <select name="brand" aria-label="Brand"><option value="">All brands</option>{% for b in brands %}<option value="{{ b.code }}" {% if brand == b.code %}selected{% endif %}>{{ b.code }}</option>{% endfor %}</select>
@@ -15,16 +15,16 @@
 </form>
 {% endif %}
 <div class="scroll"><table class="sortable">
-  <tr><th>Brand</th><th>Outlet</th><th class="n">POS sales</th><th class="n">Supplier purchases</th><th class="n">Inter-company</th><th class="n">Opening stock</th><th class="n">Closing stock</th><th>Status</th><th>Sign-off</th></tr>
+  <tr><th>Brand</th><th>Outlet</th><th class="n">POS sales</th><th class="n">Supplier purchases</th><th class="n">Inter-company</th><th class="n">B2B sales</th><th class="n">Opening stock</th><th class="n">Closing stock</th><th>Status</th><th>Sign-off</th></tr>
   {% for r in rows %}
   <tr><td>{{ r.outlet.brand.code }}</td><td>{% if r.audit %}<a href="{% url 'audit_detail' r.audit.pk %}">{{ r.outlet.name }}</a>{% else %}{{ r.outlet.name }}{% endif %}</td>
     {% if r.audit %}
-      {% for kind, n in r.files %}<td class="n {% if n %}ok{% elif kind != 'interco' %}missing{% endif %}" title="{% if n %}{{ n }} lines{% else %}Not uploaded{% endif %}">{% if n %}✓ {{ n }}{% else %}–{% endif %}</td>{% endfor %}
+      {% for kind, n in r.files %}<td class="n {% if n %}ok{% elif kind != 'interco' and kind != 'b2b' %}missing{% endif %}" title="{% if n %}{{ n }} lines{% else %}Not uploaded{% endif %}">{% if n %}✓ {{ n }}{% else %}–{% endif %}</td>{% endfor %}
       <td><span class="pill {{ r.status.code }}" title="{{ r.status.reasons|join:'; ' }}">{{ r.status.label }}</span></td>
       <td>{% if r.audit.locked %}<span class="pill LOCKED">Signed off</span>{% else %}<span class="muted">Not yet</span>{% endif %}</td>
     {% else %}
-      <td colspan="7" class="muted">Not started</td>
+      <td colspan="8" class="muted">Not started</td>
     {% endif %}</tr>
-  {% empty %}<tr data-empty><td colspan="9" class="muted">No outlets you can see.</td></tr>{% endfor %}
+  {% empty %}<tr data-empty><td colspan="10" class="muted">No outlets you can see.</td></tr>{% endfor %}
 </table></div>
 {% endblock %}
